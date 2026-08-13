@@ -281,7 +281,16 @@ local function confirmPending()
 	confirmScheduled = false
 	local hits = {}
 	for key, entry in pairs(pendingConfirm) do
-		local rule = db.rules[entry.ruleIndex]
+		-- resolve the rule by identity, not index: table.remove on deletion
+		-- shifts indices, and an index-keyed entry would re-verify (and
+		-- alert) against whatever rule slid into the deleted rule's slot
+		local rule
+		for _, r in ipairs(db.rules) do
+			if ruleToString(r) == entry.ruleKey then
+				rule = r
+				break
+			end
+		end
 		local info = rule and C_LFGList.GetSearchResultInfo(entry.resultID)
 		if not info or safeBool(info.isDelisted) then
 			-- listing gone or rule deleted; un-mark so it can re-match later
@@ -362,30 +371,34 @@ local function scanOne(resultID)
 	end
 	local haystack, categoryID, maxPlayers, comment, actDisplay = listingHaystack(info, name, leader)
 	recordAdToken(comment, leader)
-	for ruleIndex, rule in ipairs(db.rules) do
+	for _, rule in ipairs(db.rules) do
 		if ruleMatches(rule, haystack, resultID, info, categoryID, maxPlayers) then
 			local reason = blockedReason(haystack, leader, comment)
 			if reason then
 				logBlock(leader, reason, rule)
 				return
 			end
+			local ruleStr = ruleToString(rule)
 			-- leaderName can stream as "Name" first and "Name-Realm" later;
 			-- key on the realm-stripped name so the same group can't
-			-- re-alert when the format flips
-			local key = (leader:match("^([^%-]+)") or leader) .. "|" .. ruleIndex
+			-- re-alert when the format flips. The rule half of the key is
+			-- the rule's identity string, not its index — indices shift on
+			-- deletion, which made alerted/pendingConfirm state apply to
+			-- the wrong rule.
+			local key = (leader:match("^([^%-]+)") or leader) .. "|" .. ruleStr
 			local counts = C_LFGList.GetSearchResultMemberCounts(resultID)
 			matches[key] = {
 				name = name ~= "" and name or leader,
 				leader = leader,
 				activity = actDisplay,
-				rule = ruleToString(rule),
+				rule = ruleStr,
 				lastSeen = GetTime(),
 				tanks = counts and safeNum(counts.TANK),
 				healers = counts and safeNum(counts.HEALER),
 				dps = counts and safeNum(counts.DAMAGER),
 			}
 			if not alerted[key] and not pendingConfirm[key] then
-				pendingConfirm[key] = { resultID = resultID, ruleIndex = ruleIndex, tries = 0 }
+				pendingConfirm[key] = { resultID = resultID, ruleKey = ruleStr, tries = 0 }
 				if db.debug then
 					msg(("match queued for confirmation: %s's group"):format(leader))
 				end
