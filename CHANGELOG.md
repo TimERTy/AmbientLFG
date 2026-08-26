@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+- Fix: a group you'd already been alerted about could alert again after you added, removed, or reordered rules — alert state is now tied to the rule itself rather than its position in the list
+- Fix: replaced WoW API calls that were deprecated in 12.x
+- The matching logic (rule parsing, seller filtering, role checks) is now covered by automated tests
+
 ## 0.3.1
 - No more repeated failure messages when the Group Finder isn't usable (in a battleground, on an ineligible character, etc.) — retries slow down automatically and stop entirely after several failures, with a single message; searching resumes on its own once the Group Finder works again
 - Background searches pause in battlegrounds and arenas
