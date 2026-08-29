@@ -368,7 +368,7 @@ local function CreateUI()
 
 	f.emptyText = listBg:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	f.emptyText:SetPoint("CENTER")
-	f.emptyText:SetText("No rules yet — add one below, e.g. \"mythic lura\" + Tank")
+	f.emptyText:SetText("No rules yet — add one below, e.g. \"mythic nerub\" + Tank")
 	f.emptyText:SetTextColor(0.5, 0.5, 0.5)
 
 	-- Ignore words

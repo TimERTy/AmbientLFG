@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3
+- Fix: rule words were being matched against listing titles and comments, which WoW 12.0 hands to addons as unreadable tokens rather than text. Their characters could produce false matches and never a real one, so they are now skipped — rules match the activity name, its difficulty, and the leader's name.
+- The docs and the built-in examples no longer suggest matching on a boss name. Blizzard lists an activity per instance and difficulty ("Nerub-ar Palace (Mythic)"), never per boss, so a boss-name rule could never have fired. The README now spells out what a rule can and cannot match.
+
 ## 0.3.2
 - Fix: a group you'd already been alerted about could alert again after you added, removed, or reordered rules — alert state is now tied to the rule itself rather than its position in the list
 - Fix: replaced WoW API calls that were deprecated in 12.x

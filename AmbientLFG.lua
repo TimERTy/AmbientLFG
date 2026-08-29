@@ -18,7 +18,7 @@ local Match = ns.Match
 local safeStr, safeBool, safeNum = Match.safeStr, Match.safeBool, Match.safeNum
 local fuzzyPattern, normalizeText = Match.fuzzyPattern, Match.normalizeText
 local matchesIgnoreWord, ruleToString, parseRule = Match.matchesIgnoreWord, Match.ruleToString, Match.parseRule
-local roleIsOpen = Match.roleIsOpen
+local roleIsOpen, matchableText = Match.roleIsOpen, Match.matchableText
 local CATEGORY_DUNGEONS, CATEGORY_RAIDS = Match.CATEGORY_DUNGEONS, Match.CATEGORY_RAIDS
 
 local db
@@ -51,8 +51,9 @@ local function activityData(info)
 				local actInfo = C_LFGList.GetActivityInfoTable(id)
 				local fullName = actInfo and safeStr(actInfo.fullName) or ""
 				local shortName = actInfo and safeStr(actInfo.shortName) or ""
-				-- for raid bosses the shortName is often JUST the difficulty
-				-- ("Mythic") — worthless alone; fall back to the full name
+				-- an activity is one instance at one difficulty, never a
+				-- single boss; for raids the shortName is JUST the difficulty
+				-- ("Mythic") — worthless alone, so fall back to the full name
 				local shortLower = shortName:lower()
 				local displayName = shortName
 				if displayName == "" or shortLower == "mythic" or shortLower == "heroic"
@@ -61,7 +62,7 @@ local function activityData(info)
 					displayName = fullName
 				end
 				-- the short name drops the difficulty; recover it from the
-				-- full name ("Raid - Boss (Mythic)") when it's missing
+				-- full name ("Nerub-ar Palace (Mythic)") when it's missing
 				local lowerFull, lowerDisplay = fullName:lower(), displayName:lower()
 				for _, diff in ipairs({ "Mythic Keystone", "Mythic", "Heroic", "Normal" }) do
 					local lowerDiff = diff:lower()
@@ -132,8 +133,9 @@ end
 local function listingHaystack(info, name, leader)
 	local actNames, categoryID, maxPlayers, actDisplay = activityData(info)
 	local comment = safeStr(info.comment)
-	local haystack = normalizeText(name .. " " .. comment .. " " .. leader):lower()
-		.. actNames
+	local haystack = normalizeText(
+		matchableText(name) .. " " .. matchableText(comment) .. " " .. leader
+	):lower() .. actNames
 	return haystack, categoryID, maxPlayers, comment, actDisplay
 end
 
@@ -726,7 +728,7 @@ local function status()
 		(lastSearch or #db.rules > 0) and "" or " | add a rule to start watching"
 	))
 	if #db.rules == 0 then
-		msg("no rules — add one with /alfg add mythic lura +tank")
+		msg("no rules — add one with /alfg add mythic nerub +tank")
 	else
 		for i, rule in ipairs(db.rules) do
 			msg(("  rule %d: %s"):format(i, ruleToString(rule)))

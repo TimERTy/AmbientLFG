@@ -127,6 +127,15 @@ function Match.normalizeText(text)
 	end))
 end
 
+-- 12.0: listing titles and comments arrive as kstrings — opaque |K…|k tokens
+-- that the UI renders as text but that addons cannot read. A token's
+-- characters are an id, not words, so matching against them can only ever
+-- produce a false hit: a tokenized field contributes nothing, while a field
+-- that is still plain text is matched as before.
+function Match.matchableText(text)
+	return text:find("^|K") and "" or text
+end
+
 -- Does any ignore word appear in the haystack? Also matches with all
 -- separators stripped, so "W T S" / "W.T.S" hit "wts".
 function Match.matchesIgnoreWord(haystack, ignores)
