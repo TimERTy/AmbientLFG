@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4
+- New: keystone levels can be filtered. A group's key level is in the title it typed, so `/alfg add +18 +tank` works. Numbers now match exactly, so a `+18` rule no longer fires on `+19` or `+188`, and a `+2` rule no longer catches every key from `+20` to `+29`.
+- Fix: 0.3.3's release notes and README overstated the 12.0 text restrictions. Titles a group types itself are readable and are matched normally; only Blizzard's auto-generated titles arrive as unreadable tokens. Matching was never disabled for readable titles, but the docs said it was.
+
 ## 0.3.3
 - Fix: rule words were being matched against listing titles and comments, which WoW 12.0 hands to addons as unreadable tokens rather than text. Their characters could produce false matches and never a real one, so they are now skipped — rules match the activity name, its difficulty, and the leader's name.
 - The docs and the built-in examples no longer suggest matching on a boss name. Blizzard lists an activity per instance and difficulty ("Nerub-ar Palace (Mythic)"), never per boss, so a boss-name rule could never have fired. The README now spells out what a rule can and cannot match.

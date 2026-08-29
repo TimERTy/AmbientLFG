@@ -9,11 +9,16 @@ Watches the WoW Premade Group Finder for groups matching your criteria and alert
 - **Background watching**: optional auto-search re-checks the Group Finder while you play. It pauses while you browse the Group Finder yourself and resumes when you close it.
 - **Live matches list**: the `/alfg` window shows every currently-listed matching group with its tank/healer/dps counts, activity, difficulty, and title.
 
+## Keystone levels
+
+Key level lives in the listing's title, so match it there: `/alfg add +18 +tank`. Numbers are matched exactly — a `+18` rule will not fire on `+19` or `+188`, and a `+2` rule will not catch every key from `+20` to `+29`.
+
 ## What rules can't match
 
-As of WoW 12.0 a listing's own title and comment reach addons as opaque tokens — the game renders them on screen, but nothing can read the words inside. Rules match what is still readable: the activity name, its difficulty, and the leader's name.
+Rules see the listing's title and comment, the activity name and its difficulty, and the leader's name. Two limits are worth knowing:
 
-So a rule can say "Mythic Nerub-ar Palace", but it cannot say "the group whose title mentions Ulgrax" or "+18 keys only" — Blizzard exposes no per-boss or per-keystone-level activity, and the Group Finder's own search has no free-text filter. Rule words aimed at a boss name or a key level will simply never fire.
+- **Blizzard's auto-generated titles are unreadable.** When a group doesn't type its own title, the game sends addons an opaque token rather than words. Those listings can still be matched by activity, difficulty and leader, but not by title text.
+- **There is no per-boss activity.** Blizzard lists one activity per instance per difficulty — "Nerub-ar Palace (Mythic)" — so a boss name only matches when the group happens to have typed it into their own title.
 - **Seller filtering**: boost/carry advertisers are recognized and hidden automatically; block any leader forever with one click.
 
 ## Usage

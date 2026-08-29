@@ -49,13 +49,26 @@ end
 
 -- "lura" -> "l+u+r+a+" so doubled/stretched spellings (Lurra, Luraa) still
 -- hit. Compiled once per word — this runs for every word × every listing.
+-- Digits are fenced instead of stretched: a number means a quantity, so "+18"
+-- must not run on into "+188" and "+2" must not swallow every key from +20 to
+-- +29. A word's digits therefore match exactly, with a frontier at each end
+-- so no further digit may sit beside them.
 local patternCache = {}
 function Match.fuzzyPattern(word)
 	local pattern = patternCache[word]
 	if not pattern then
 		pattern = (word:lower():gsub("[%w%p]", function(c)
+			if c:match("%d") then
+				return c
+			end
 			return c:match("%w") and c .. "+" or "%" .. c .. "+"
 		end))
+		if word:match("^%d") then
+			pattern = "%f[%d]" .. pattern
+		end
+		if word:match("%d$") then
+			pattern = pattern .. "%f[%D]"
+		end
 		patternCache[word] = pattern
 	end
 	return pattern
