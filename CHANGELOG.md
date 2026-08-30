@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.9
+- `/alfg diag` prints its findings straight to chat instead of writing them to SavedVariables for a `/reload` to flush. A dump you cannot read until you reload says nothing at the moment you run it, so a run that found nothing looked exactly like a run that never happened. It now leads with the raw and filtered listing counts, which is the direct answer to whether the Group Finder's search box is narrowing anything at all.
+
 ## 0.3.8
 - Adding a rule keeps the section, difficulty and roles you picked. Rules are usually added in runs that share them, and resetting to the defaults meant re-clicking the same four things for every rule after the first.
 

@@ -806,10 +806,13 @@ end
 
 -- A listing that fails to match looks the same from outside whether its title
 -- was unreadable, its roles were full, or the result was a husk. /alfg diag
--- records what the addon actually received for the listings on screen — the
--- kind of each text field, and the haystack a rule is matched against. Chat
--- truncates and can't be copied, so the dump goes to SavedVariables, which a
--- /reload flushes to disk.
+-- prints what the addon actually received for the listings on screen.
+--
+-- It prints rather than writing SavedVariables: a dump that needs a /reload to
+-- become readable reports nothing at the moment you run it, so a run that found
+-- nothing and a run that never happened look identical. The raw-vs-filtered
+-- counts on the first line are the whole answer to "is the search box actually
+-- filtering" — equal counts mean it is not.
 local function fieldKind(v)
 	if v == nil then
 		return "nil"
@@ -823,64 +826,55 @@ local function fieldKind(v)
 	return "text"
 end
 
-local DIAG_LIMIT = 25
+local DIAG_LIMIT = 12
 local function diag()
 	local _, raw = C_LFGList.GetSearchResults()
-	local results = searchResults()
-	if type(results) ~= "table" then
-		msg("diag: no search results yet — search once in the Group Finder first")
-		return
+	local _, filtered = C_LFGList.GetFilteredSearchResults and C_LFGList.GetFilteredSearchResults()
+	local rawN = type(raw) == "table" and #raw or -1
+	local filtN = type(filtered) == "table" and #filtered or -1
+	local box = searchBoxText()
+	msg(("diag: box=%q raw=%d filtered=%d%s"):format(
+		box, rawN, filtN,
+		(filtN >= 0 and rawN == filtN and box ~= "") and "  <- box is NOT narrowing" or ""))
+	for i, rule in ipairs(db.rules) do
+		msg(("  rule %d: %s"):format(i, ruleToString(rule)))
 	end
-	local dump = {
-		at = date("%Y-%m-%d %H:%M:%S"),
-		boxText = searchBoxText(),
-		rawCount = type(raw) == "table" and #raw or -1,
-		returned = #results,
-		rules = {},
-		listings = {},
-	}
-	for _, rule in ipairs(db.rules) do
-		dump.rules[#dump.rules + 1] = ruleToString(rule)
+
+	local results = searchResults()
+	if type(results) ~= "table" or #results == 0 then
+		msg("  no listings on hand — search once in the Group Finder first")
+		return
 	end
 	for i = 1, math.min(#results, DIAG_LIMIT) do
 		local resultID = results[i]
 		local info = type(resultID) == "number" and C_LFGList.GetSearchResultInfo(resultID) or nil
 		if info then
-			local name, leader, ready = listingIdentity(info)
+			local name, leader = listingIdentity(info)
 			local haystack, categoryID, _, _, actDisplay = listingHaystack(info, name, leader)
-			local entry = {
-				ready = ready,
-				delisted = safeBool(info.isDelisted) and true or false,
-				nameKind = fieldKind(info.name),
-				name = safeStr(info.name):sub(1, 80),
-				commentKind = fieldKind(info.comment),
-				comment = safeStr(info.comment):sub(1, 80),
-				leader = safeStr(info.leaderName),
-				category = categoryID,
-				activity = actDisplay,
-				haystack = haystack,
-				misses = {},
-			}
 			local counts = C_LFGList.GetSearchResultMemberCounts(resultID)
+			local roles = "?"
 			if type(counts) == "table" then
-				entry.members = safeNum(info.numMembers)
-				entry.tanks = safeNum(counts.TANK)
-				entry.healers = safeNum(counts.HEALER)
-				entry.dps = safeNum(counts.DAMAGER)
+				roles = ("n%d T%d H%d D%d"):format(safeNum(info.numMembers),
+					safeNum(counts.TANK), safeNum(counts.HEALER), safeNum(counts.DAMAGER))
 			end
+			local misses = {}
 			for _, rule in ipairs(db.rules) do
 				for _, word in ipairs(rule.words) do
 					if not wordMatches(haystack, word) then
-						entry.misses[#entry.misses + 1] = word
+						misses[#misses + 1] = word
 					end
 				end
 			end
-			dump.listings[#dump.listings + 1] = entry
+			msg(("  [%d] name=%s %q cmt=%s cat=%s %s act=%q%s"):format(
+				i, fieldKind(info.name), safeStr(info.name):sub(1, 40),
+				fieldKind(info.comment), tostring(categoryID), roles,
+				tostring(actDisplay):sub(1, 30),
+				#misses > 0 and ("  missed: " .. table.concat(misses, ",")) or ""))
 		end
 	end
-	db.diag = dump
-	msg(("diag: %d listings on hand, %d recorded — now /reload so it is written out")
-		:format(dump.returned, #dump.listings))
+	if #results > DIAG_LIMIT then
+		msg(("  ... %d more"):format(#results - DIAG_LIMIT))
+	end
 end
 
 SLASH_AMBIENTLFG1 = "/ambientlfg"
