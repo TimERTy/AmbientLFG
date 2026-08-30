@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.8
+- Adding a rule keeps the section, difficulty and roles you picked. Rules are usually added in runs that share them, and resetting to the defaults meant re-clicking the same four things for every rule after the first.
+
 ## 0.3.7
 - Fix: the roles on a rule were required all at once. Ticking Tank, Healer and DPS asked for a group with every role still open — an empty group — so the rule matched nothing and looked simply broken. Roles are either/or now: they say which roles you can fill.
 - Keystone levels are filtered by the Group Finder's own search box instead of by matching the listing's title. A group's title reaches addons as an unreadable token, so `+14` as a rule word could never have worked; typing `14` (or a range like `12-14`) into Blizzard's search box filters on the real key level, and that filter keeps applying to the addon's background searches after you close the window. The settings window shows the filter when one is set, since it silently narrows everything.

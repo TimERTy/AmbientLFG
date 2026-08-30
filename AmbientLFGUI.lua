@@ -547,13 +547,11 @@ local function CreateUI()
 			return
 		end
 		table.insert(db.rules, rule)
+		-- Only the words are cleared. Rules are added in runs that share a
+		-- section, difficulty and role, so resetting those made every rule after
+		-- the first take four extra clicks to say the same thing again.
 		f.addBox:SetText("")
 		f.addBox:ClearFocus()
-		for _, cb in ipairs(f.diffCBs) do
-			cb:SetChecked(false)
-		end
-		selectSection(false)
-		resetRoleChecks()
 		Refresh()
 	end
 
