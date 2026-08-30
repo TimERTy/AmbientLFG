@@ -7,7 +7,6 @@ local defaults = {
 	roles = {},
 	ignores = { "wts", "sell", "boost", "carry" },
 	sound = true,
-	auto = false,
 	interval = 10,
 	debug = false,
 	blockedLeaders = {},
@@ -636,7 +635,7 @@ local function setPending(state)
 end
 
 local function autoSearch()
-	if not db.enabled or not db.auto or not lastSearch then
+	if not db.enabled or not lastSearch then
 		return
 	end
 	stats.browsing = playerIsBrowsing() or nil
@@ -655,7 +654,7 @@ local function autoSearch()
 end
 
 function firePendingSearch()
-	if pendingAuto and db and db.enabled and db.auto
+	if pendingAuto and db and db.enabled
 		and not suspended
 		and GetTime() >= backoffUntil
 		and not playerIsBrowsing()
@@ -668,7 +667,7 @@ end
 WorldFrame:HookScript("OnMouseDown", firePendingSearch)
 
 local function restartTicker()
-	-- toggling auto-search (or changing the interval) is the manual way to
+	-- toggling Watch (or changing the interval) is the manual way to
 	-- retry after a suspension
 	suspended = false
 	consecutiveFailures = 0
@@ -677,7 +676,7 @@ local function restartTicker()
 		ticker:Cancel()
 		ticker = nil
 	end
-	if db.auto then
+	if db.enabled then
 		ticker = C_Timer.NewTicker(db.interval, autoSearch)
 	end
 end
@@ -776,6 +775,13 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 		end
 		db.keywords = nil -- pre-rule format, never shipped
 		db.flash = nil -- taskbar flashing is unconditional now
+		-- Enabled and auto-search were two switches for one thing: watching
+		-- means searching, and the addon saw nothing without it. Either one
+		-- off meant not watching, so either one off stays off.
+		if db.auto ~= nil then
+			db.enabled = db.enabled and db.auto
+			db.auto = nil
+		end
 		-- "Already seen" has to outlive a /reload, or every reload re-alerts
 		-- every group you'd dismissed. Entries expire so that a leader who
 		-- lists again tomorrow is genuinely new.
@@ -818,7 +824,7 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 		if consecutiveFailures >= 5 and not suspended then
 			suspended = true
 			stats.suspended = true
-			msg("auto-search suspended — the Group Finder keeps rejecting searches (not usable right now?). It resumes after a successful manual search or toggling auto-search.")
+			msg("watching suspended — the Group Finder keeps rejecting searches (not usable right now?). It resumes after a successful manual search, or untick and retick Watch.")
 		elseif db and db.debug then
 			msg(("search failed — backing off %ds"):format(backoff))
 		end
@@ -832,7 +838,7 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 			suspended = false
 			stats.suspended = false
 			if db and db.debug then
-				msg("searches working again — auto-search resumed")
+				msg("searches working again — watching resumed")
 			end
 		end
 		queueScan()
@@ -847,10 +853,9 @@ local function watchedSearch()
 end
 
 local function status()
-	msg(("v%s | %s | auto-search: %s (every %ds)"):format(
+	msg(("v%s | %s (searching every %ds)"):format(
 		(C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)(ADDON_NAME, "Version") or "?",
-		db.enabled and "enabled" or "disabled",
-		db.auto and "on" or "off",
+		db.enabled and "on" or "off",
 		db.interval))
 	local watching = watchedSearch()
 	msg(watching
@@ -953,9 +958,6 @@ SlashCmdList.AMBIENTLFG = function(input)
 		end
 	elseif cmd == "on" or cmd == "off" then
 		db.enabled = cmd == "on"
-		status()
-	elseif cmd == "auto" then
-		db.auto = rest:lower() == "on"
 		restartTicker()
 		status()
 	elseif cmd == "interval" then
@@ -963,7 +965,7 @@ SlashCmdList.AMBIENTLFG = function(input)
 		if n and n >= 5 then
 			db.interval = math.floor(n)
 			restartTicker()
-			msg(("auto-search interval set to %ds"):format(db.interval))
+			msg(("search interval set to %ds"):format(db.interval))
 		else
 			msg("interval must be at least 5 seconds")
 		end
@@ -1008,7 +1010,7 @@ SlashCmdList.AMBIENTLFG = function(input)
 	elseif cmd == "list" or cmd == "" or cmd == "status" then
 		status()
 	else
-		msg("commands: ui, roles <tank healer dps|any>, ignore <word>, unignore <word>, block <leader>, unblock <leader>, on/off, auto on/off, interval <sec>, debug on/off, reset, test, diag")
+		msg("commands: ui, roles <tank healer dps|any>, ignore <word>, unignore <word>, block <leader>, unblock <leader>, on/off, interval <sec>, debug on/off, reset, test, diag")
 	end
 end
 

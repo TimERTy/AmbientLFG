@@ -8,7 +8,7 @@ You set up the search you want in Blizzard's own Group Finder — category, filt
 
 - **Alerts**: raid-warning banner, sound, and a flashing taskbar icon if you're alt-tabbed.
 - **Roles**: tick the roles you can play. A group alerts if any one of them still has an open seat. Tick none and every group the search returns will alert.
-- **Background watching**: optional auto-search re-checks the Group Finder while you play. It pauses while you browse the Group Finder yourself and resumes when you close it.
+- **Background watching**: one switch. While it is ticked the addon re-runs your search every few seconds as you play, pausing while you browse the Group Finder yourself and resuming when you close it.
 - **Live matches list**: the `/alfg` window shows every currently-listed matching group with its tank/healer/dps counts, activity and title.
 - **Seller filtering**: boost/carry advertisers are recognized and hidden automatically; block any leader forever with one click.
 
@@ -25,11 +25,11 @@ The filter keeps applying once you close the window, which is why the `/alfg` wi
 1. Open the Group Finder, set up the search you want, and run it once
 2. `/alfg` to open the settings window
 3. Tick the roles you can play
-4. Enable auto-search
+4. Tick "Watch every N sec"
 5. When the alert fires, open the Group Finder and sign up
 
 Signing up stays a manual click — Blizzard requires it — so pairing this with a one-click-apply addon like SmartLFG works well.
 
 ## Commands
 
-`/alfg` opens the window. `/alfg roles tank dps` (or `any`), `/alfg auto on`, `/alfg interval 15`, `/alfg ignore wts`, `/alfg block <leader>`, `/alfg diag` to see exactly what the addon received for the listings on screen.
+`/alfg` opens the window. `/alfg roles tank dps` (or `any`), `/alfg on`, `/alfg interval 15`, `/alfg ignore wts`, `/alfg block <leader>`, `/alfg diag` to see exactly what the addon received for the listings on screen.

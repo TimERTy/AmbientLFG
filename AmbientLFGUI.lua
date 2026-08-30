@@ -120,7 +120,6 @@ Refresh = function()
 
 	ui.enabledCB:SetChecked(db.enabled)
 	ui.soundCB:SetChecked(db.sound)
-	ui.autoCB:SetChecked(db.auto)
 	ui.debugCB:SetChecked(db.debug)
 	for role, cb in pairs(ui.roleCBs) do
 		cb:SetChecked(db.roles and db.roles[role] or false)
@@ -203,23 +202,21 @@ Refresh = function()
 		heartbeat = heartbeat .. (" | %d auto-searches"):format(stats.autoIssued)
 	end
 	if not db.enabled then
-		ui.statusText:SetText("|cffff6666Alerts disabled|r" .. heartbeat)
-	elseif db.auto and not ns.IsArmed() then
-		ui.statusText:SetText("|cffffcc00Auto-search idle — fill in the Group Finder's search box and search once to arm it|r" .. heartbeat)
-	elseif db.auto and stats.browsing then
+		ui.statusText:SetText("|cffff6666Off|r" .. heartbeat)
+	elseif not ns.IsArmed() then
+		ui.statusText:SetText("|cffffcc00Idle — fill in the Group Finder's search box and search once to arm it|r" .. heartbeat)
+	elseif stats.browsing then
 		-- silence here reads as the addon being broken; it is deliberate
 		ui.statusText:SetText("|cffffcc00Paused while the Group Finder is open|r — searching now would stomp the results you're looking at" .. heartbeat)
-	elseif db.auto and stats.suspended then
-		ui.statusText:SetText("|cffff6666Auto-search suspended — searches keep failing (Group Finder not usable right now?). Toggle auto-search to retry.|r" .. heartbeat)
-	elseif db.auto and stats.backoffUntil and GetTime() < stats.backoffUntil then
+	elseif stats.suspended then
+		ui.statusText:SetText("|cffff6666Suspended — searches keep failing (Group Finder not usable right now?). Untick and retick to retry.|r" .. heartbeat)
+	elseif stats.backoffUntil and GetTime() < stats.backoffUntil then
 		ui.statusText:SetText(("|cffff9933Search throttled — pausing %ds|r"):format(
 			math.ceil(stats.backoffUntil - GetTime())) .. heartbeat)
-	elseif db.auto and stats.pending then
+	elseif stats.pending then
 		ui.statusText:SetText("|cff66ff66Search queued — fires on your next click in the world|r" .. heartbeat)
-	elseif db.auto then
-		ui.statusText:SetText(("|cff66ff66Watching — searches every %ds, on your next click|r"):format(db.interval) .. heartbeat)
 	else
-		ui.statusText:SetText("Alerting on manual refreshes only (enable auto-search to monitor)" .. heartbeat)
+		ui.statusText:SetText(("|cff66ff66Watching — searches every %ds, on your next click|r"):format(db.interval) .. heartbeat)
 	end
 end
 
@@ -284,30 +281,20 @@ local function CreateUI()
 		self:EnableKeyboard(event == "PLAYER_REGEN_ENABLED")
 	end)
 
-	-- Options: Enabled / Sound / Flash
+	-- One switch, not two: watching means searching. Enabled without
+	-- auto-search saw only the searches the player ran by hand, in the window
+	-- they were already looking at, which is the addon doing nothing.
 	local getDb = ns.GetDB
-	f.enabledCB = MakeCheckbox(f, "Enabled", function(checked)
+	f.enabledCB = MakeCheckbox(f, "Watch every", function(checked)
 		getDb().enabled = checked
+		ns.restartTicker()
 		Refresh()
 	end)
 	f.enabledCB:SetPoint("TOPLEFT", f, "TOPLEFT", PADDING, -30)
 
-	f.soundCB = MakeCheckbox(f, "Sound", function(checked)
-		getDb().sound = checked
-	end)
-	f.soundCB:SetPoint("LEFT", f.enabledCB.label, "RIGHT", 16, 0)
-
-	-- Auto-search + interval
-	f.autoCB = MakeCheckbox(f, "Auto-search every", function(checked)
-		getDb().auto = checked
-		ns.restartTicker()
-		Refresh()
-	end)
-	f.autoCB:SetPoint("TOPLEFT", f.enabledCB, "BOTTOMLEFT", 0, -2)
-
 	f.intervalBox = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
 	f.intervalBox:SetSize(36, 20)
-	f.intervalBox:SetPoint("LEFT", f.autoCB.label, "RIGHT", 10, 0)
+	f.intervalBox:SetPoint("LEFT", f.enabledCB.label, "RIGHT", 10, 0)
 	f.intervalBox:SetAutoFocus(false)
 	f.intervalBox:SetNumeric(true)
 	f.intervalBox:SetMaxLetters(3)
@@ -329,15 +316,20 @@ local function CreateUI()
 	secText:SetPoint("LEFT", f.intervalBox, "RIGHT", 4, 0)
 	secText:SetText("sec")
 
+	f.soundCB = MakeCheckbox(f, "Sound", function(checked)
+		getDb().sound = checked
+	end)
+	f.soundCB:SetPoint("LEFT", secText, "RIGHT", 16, 0)
+
 	f.debugCB = MakeCheckbox(f, "Chat log", function(checked)
 		getDb().debug = checked
 	end)
-	f.debugCB:SetPoint("LEFT", secText, "RIGHT", 16, 0)
+	f.debugCB:SetPoint("LEFT", f.soundCB.label, "RIGHT", 16, 0)
 
 	-- Roles are one global setting, not a property of a rule: they say which
 	-- seats you can take. None ticked means every group the search returns.
 	local rolesLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	rolesLabel:SetPoint("TOPLEFT", f.autoCB, "BOTTOMLEFT", 0, -10)
+	rolesLabel:SetPoint("TOPLEFT", f.enabledCB, "BOTTOMLEFT", 0, -10)
 	rolesLabel:SetText("Alert me when a group has an open seat for:")
 	rolesLabel:SetTextColor(0.7, 0.7, 0.7)
 
