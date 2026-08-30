@@ -7,7 +7,6 @@ local defaults = {
 	roles = {},
 	ignores = { "wts", "sell", "boost", "carry" },
 	sound = true,
-	flash = true,
 	auto = false,
 	interval = 10,
 	debug = false,
@@ -43,6 +42,11 @@ local lastSearch -- captured args from the most recent C_LFGList.Search call
 local primed = false
 local primedFor
 local preexisting = {}
+-- The listing IDs the current search actually returned. LFG_LIST_SEARCH_RESULT_-
+-- UPDATED fires for any listing the client is tracking, including ones left over
+-- from an earlier, wider search, so a resultID arriving from an event is not
+-- evidence that it passed the search box. Only IDs in here may alert.
+local currentSet = {}
 
 local function msg(text)
 	print("|cff33ff99AmbientLFG|r: " .. text)
@@ -256,9 +260,9 @@ local function alertMatches(hits)
 		lastSoundAt = GetTime()
 		PlaySound(SOUNDKIT.RAID_WARNING, "Master")
 	end
-	if db.flash then
-		FlashClientIcon()
-	end
+	-- flashing does nothing at all while WoW has focus, so there is no setting
+	-- for it: the case it exists for is the alt-tabbed player it can't annoy
+	FlashClientIcon()
 	for i = 1, math.min(#hits, 3) do
 		RaidNotice_AddMessage(RaidWarningFrame,
 			("Group Finder: \"%s\"%s"):format(hits[i].name,
@@ -294,7 +298,10 @@ local function confirmPending()
 	local hits = {}
 	for key, entry in pairs(pendingConfirm) do
 		local info = C_LFGList.GetSearchResultInfo(entry.resultID)
-		if not info or safeBool(info.isDelisted) then
+		if not currentSet[entry.resultID] then
+			-- the search moved on while this was waiting for its details
+			pendingConfirm[key] = nil
+		elseif not info or safeBool(info.isDelisted) then
 			-- listing gone; un-mark so it can re-match later
 			pendingConfirm[key] = nil
 		else
@@ -362,6 +369,9 @@ local function scanOne(resultID)
 		return
 	end
 	if type(resultID) ~= "number" or (issecretvalue and issecretvalue(resultID)) then
+		return
+	end
+	if not currentSet[resultID] then
 		return
 	end
 	local info = C_LFGList.GetSearchResultInfo(resultID)
@@ -481,6 +491,14 @@ local function searchBoxText()
 	return box and safeStr(box:GetText()) or ""
 end
 
+-- An empty search box is not a filter, it is every group in the category. It
+-- would alert on the whole board and keep alerting as the board churns, which
+-- is indistinguishable from the addon being broken. So an empty box counts as
+-- no search at all: nothing is watched until the player types one.
+local function armed()
+	return lastSearch ~= nil and searchBoxText() ~= ""
+end
+
 local function scanResults()
 	local results = searchResults()
 	if type(results) ~= "table" then
@@ -488,8 +506,12 @@ local function scanResults()
 	end
 	stats.lastResultsAt = GetTime()
 	stats.lastResultCount = #results
-	if not db.enabled then
+	if not db.enabled or not armed() then
 		return
+	end
+	wipe(currentSet)
+	for _, id in ipairs(results) do
+		currentSet[id] = true
 	end
 	if not primed then
 		primed = true
@@ -546,7 +568,7 @@ local pendingAuto = false
 local function issueSearch()
 	-- deliberately no per-cycle chat line even in debug mode — it was pure
 	-- noise; the scan summary and the UI heartbeat already show the cadence
-	if not lastSearch then
+	if not armed() then
 		return
 	end
 	stats.autoIssued = stats.autoIssued + 1
@@ -707,6 +729,7 @@ hooksecurefunc(C_LFGList, "Search", function(...)
 		primed = false
 		wipe(matches)
 		wipe(pendingConfirm)
+		wipe(currentSet)
 	end
 	if db then
 		db.lastSearch = sanitizeValue(lastSearch, 0)
@@ -728,6 +751,7 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 			end
 		end
 		db.keywords = nil -- pre-rule format, never shipped
+		db.flash = nil -- taskbar flashing is unconditional now
 		-- Rule words could never see a keystone level: a listing's title
 		-- reaches an addon as an opaque token even when the group typed it.
 		-- The Group Finder's own search box can, so the search is the filter
@@ -780,7 +804,7 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 end)
 
 local function watchedSearch()
-	if not lastSearch then
+	if not armed() then
 		return nil
 	end
 	return searchDescription(lastSearch[1], searchBoxText())
@@ -956,7 +980,7 @@ end
 ns.msg = msg
 ns.restartTicker = restartTicker
 ns.GetDB = function() return db end
-ns.IsArmed = function() return lastSearch ~= nil end
+ns.IsArmed = armed
 ns.GetWatchedSearch = watchedSearch
 ns.GetStats = function() return stats end
 ns.GetSearchBoxText = searchBoxText

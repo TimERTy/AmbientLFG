@@ -14,6 +14,9 @@ The reason is that rule words could never do this job. Since 12.0 a listing's ti
 - The groups already listed when watching starts no longer alert. A login, a `/reload`, or changing your search used to fire on every listing the search returned at once; those are the board as you'd see it, not news, so alerting begins with the next group to appear. `/alfg reset` still makes them all alert again.
 - Changing your search clears the matches list immediately instead of leaving the previous search's groups sitting in it until they aged out.
 - The window is titled "AmbientLFG" rather than "Premade Alert".
+- Fix: a listing that was not in the current search's results could alert anyway — a `+8` while you were watching `16-16`. The game reports updates for every listing it is still tracking, including leftovers from an earlier, wider search, and those updates were being treated as matches.
+- An empty search box is no longer watched at all. It is not a filter, it is every group in the category, so it would alert on the whole board and keep alerting as the board churns.
+- The "Flash taskbar" option is gone; it always flashes. Flashing does nothing while WoW has focus, so the only player it can reach is the alt-tabbed one it was meant for.
 - Fix: the roles on a rule were required all at once. Ticking Tank, Healer and DPS asked for a group with every role still open — an empty group — so it matched nothing and looked simply broken.
 - Clicking a checkbox's label toggles it, instead of only the box itself.
 - A queued background search now also fires on a keypress, not only on a click in the world. WoW requires a hardware event to run the search, and if you move with the keyboard you could go a long stretch without clicking anything while searches waited.

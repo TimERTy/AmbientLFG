@@ -120,7 +120,6 @@ Refresh = function()
 
 	ui.enabledCB:SetChecked(db.enabled)
 	ui.soundCB:SetChecked(db.sound)
-	ui.flashCB:SetChecked(db.flash)
 	ui.autoCB:SetChecked(db.auto)
 	ui.debugCB:SetChecked(db.debug)
 	for role, cb in pairs(ui.roleCBs) do
@@ -139,7 +138,7 @@ Refresh = function()
 	local watching = ns.GetWatchedSearch()
 	ui.watchText:SetText(watching
 		and ("Watching |cffffd100%s|r"):format(watching)
-		or "|cffffcc00Nothing to watch|r — run the search you want in the Group Finder once")
+		or "|cffffcc00Nothing to watch|r — type what you want in the Group Finder's search box (e.g. 14-14) and search once")
 
 	-- live list of currently-listed groups; the opaque title tokens render as
 	-- real text inside a FontString
@@ -195,7 +194,7 @@ Refresh = function()
 	if not db.enabled then
 		ui.statusText:SetText("|cffff6666Alerts disabled|r" .. heartbeat)
 	elseif db.auto and not ns.IsArmed() then
-		ui.statusText:SetText("|cffffcc00Auto-search idle — search once in the Group Finder to arm it|r" .. heartbeat)
+		ui.statusText:SetText("|cffffcc00Auto-search idle — fill in the Group Finder's search box and search once to arm it|r" .. heartbeat)
 	elseif db.auto and stats.suspended then
 		ui.statusText:SetText("|cffff6666Auto-search suspended — searches keep failing (Group Finder not usable right now?). Toggle auto-search to retry.|r" .. heartbeat)
 	elseif db.auto and stats.backoffUntil and GetTime() < stats.backoffUntil then
@@ -283,11 +282,6 @@ local function CreateUI()
 		getDb().sound = checked
 	end)
 	f.soundCB:SetPoint("LEFT", f.enabledCB.label, "RIGHT", 16, 0)
-
-	f.flashCB = MakeCheckbox(f, "Flash taskbar", function(checked)
-		getDb().flash = checked
-	end)
-	f.flashCB:SetPoint("LEFT", f.soundCB.label, "RIGHT", 16, 0)
 
 	-- Auto-search + interval
 	f.autoCB = MakeCheckbox(f, "Auto-search every", function(checked)
