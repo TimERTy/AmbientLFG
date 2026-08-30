@@ -599,8 +599,29 @@ end
 
 -- 12.0: C_LFGList.Search is hardware-event protected — calling it from a
 -- timer gets ADDON_ACTION_BLOCKED (confirmed via BugGrabber 2026-07-11).
--- The ticker only queues; the search fires from the player's next click in
--- the world, which is a hardware event.
+-- The ticker only queues; the search fires from the player's next hardware
+-- event, which is a click in the world or any keypress.
+local firePendingSearch -- assigned once issueSearch is in scope
+
+-- Keys are hardware events as much as clicks are, and a player who moves with
+-- the keyboard can go a long time without clicking anything — long enough for
+-- a queued search to just sit there. The watcher propagates every key onward
+-- untouched, so it changes nothing about what that key does, and it listens
+-- only while a search is actually queued.
+local keyWatcher = CreateFrame("Frame", nil, UIParent)
+keyWatcher:SetPropagateKeyboardInput(true)
+keyWatcher:EnableKeyboard(false)
+keyWatcher:SetScript("OnKeyDown", function(self)
+	self:SetPropagateKeyboardInput(true)
+	firePendingSearch()
+end)
+
+local function setPending(state)
+	pendingAuto = state
+	stats.pending = state
+	keyWatcher:EnableKeyboard(state)
+end
+
 local function autoSearch()
 	if not db.enabled or not db.auto or (#db.rules == 0 and not lastSearch) then
 		return
@@ -615,22 +636,22 @@ local function autoSearch()
 		return
 	end
 	if not pendingAuto then
-		pendingAuto = true
-		stats.pending = true
+		setPending(true)
 	end
 end
 
-WorldFrame:HookScript("OnMouseDown", function()
+function firePendingSearch()
 	if pendingAuto and db and db.enabled and db.auto
 		and not suspended
 		and GetTime() >= backoffUntil
 		and not playerIsBrowsing()
 		and GetTime() - (stats.lastAnySearchAt or 0) >= 5 then
-		pendingAuto = false
-		stats.pending = false
+		setPending(false)
 		issueSearch()
 	end
-end)
+end
+
+WorldFrame:HookScript("OnMouseDown", firePendingSearch)
 
 local function restartTicker()
 	-- toggling auto-search (or changing the interval) is the manual way to
