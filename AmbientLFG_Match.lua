@@ -201,7 +201,13 @@ function Match.parseRule(input)
 	local rule = { words = {}, roles = {} }
 	for token in input:gmatch("%S+") do
 		local tag = token:match("^%+(%S+)$")
-		if tag then
+		-- "+18" is a keystone level, not a tag: people write a key both ways,
+		-- so both spellings become the same bare-number word and match a title
+		-- whether or not the group typed the plus.
+		local keystone = tag and tag:match("^%d+$")
+		if keystone then
+			rule.words[#rule.words + 1] = keystone
+		elseif tag then
 			tag = tag:lower()
 			if tag == "raid" or tag == "raids" then
 				rule.category = Match.CATEGORY_RAIDS

@@ -505,19 +505,31 @@ end
 
 local pendingAuto = false
 
--- Searches are constructed from the categories the rules imply (raids by
--- default, +dungeon per rule), rotating one category per cycle. A search the
--- player ran manually is captured and preferred as a fallback if the
--- constructed call is ever rejected (API signature drift across patches).
+-- Searches are constructed from the categories the rules imply, rotating one
+-- category per cycle. A search the player ran manually is captured and
+-- preferred as a fallback if the constructed call is ever rejected (API
+-- signature drift across patches).
 local searchRotation = 0
 
+-- An untagged rule matches listings in either category (matchesRule only
+-- compares a category the rule actually names), so it has to search both.
+-- Searching one of them narrows what an untagged rule can ever alert on to
+-- whichever category was picked, silently and with no way to tell from the
+-- scan counts.
 local function ruleCategories()
 	local cats, seen = {}, {}
-	for _, rule in ipairs(db.rules) do
-		local cat = rule.category or CATEGORY_RAIDS
+	local function add(cat)
 		if not seen[cat] then
 			seen[cat] = true
 			cats[#cats + 1] = cat
+		end
+	end
+	for _, rule in ipairs(db.rules) do
+		if rule.category then
+			add(rule.category)
+		else
+			add(CATEGORY_DUNGEONS)
+			add(CATEGORY_RAIDS)
 		end
 	end
 	return cats

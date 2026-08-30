@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.5
+- Fix: `/alfg add +18` was rejected as an unknown tag, so the keystone filtering 0.3.4 added could not actually be typed the way the docs described it. `+18` and `18` now mean the same thing, and a key matches whether or not the group typed the plus.
+- Fix: a rule with no `+raid` or `+dungeon` searched raids only, so a keystone rule alerted on nothing while reporting listings scanned. Untagged rules now search both sections, which is what they already matched against.
+
 ## 0.3.4
 - New: keystone levels can be filtered. A group's key level is in the title it typed, so `/alfg add +18 +tank` works. Numbers now match exactly, so a `+18` rule no longer fires on `+19` or `+188`, and a `+2` rule no longer catches every key from `+20` to `+29`.
 - Fix: 0.3.3's release notes and README overstated the 12.0 text restrictions. Titles a group types itself are readable and are matched normally; only Blizzard's auto-generated titles arrive as unreadable tokens. Matching was never disabled for readable titles, but the docs said it was.

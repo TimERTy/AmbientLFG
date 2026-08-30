@@ -11,7 +11,9 @@ Watches the WoW Premade Group Finder for groups matching your criteria and alert
 
 ## Keystone levels
 
-Key level lives in the listing's title, so match it there: `/alfg add +18 +tank`. Numbers are matched exactly — a `+18` rule will not fire on `+19` or `+188`, and a `+2` rule will not catch every key from `+20` to `+29`.
+Key level lives in the listing's title, so match it there: `/alfg add +18 +dungeon +tank`. Write it as `+18` or `18` — they mean the same thing, and either matches a title whether or not the group typed the plus. Numbers are matched exactly: a `+18` rule will not fire on `+19` or `+188`, and a `+2` rule will not catch every key from `+20` to `+29`.
+
+Add `+dungeon` if the rule is only ever about keys. Without it the rule searches raids as well, which costs nothing but a slower cycle.
 
 ## What rules can't match
 
