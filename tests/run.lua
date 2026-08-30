@@ -149,6 +149,27 @@ describe("shortName", function()
     end)
 end)
 
+describe("alertLine", function()
+    it("names the group by the title it typed", function()
+        eq(M.alertLine("LF1M tank", "Manaforge Omega (Heroic)", "Lurra-Stormrage"),
+            "Group Finder: \"LF1M tank\" — Manaforge Omega (Heroic)")
+    end)
+    it("drops the activity when there is none", function()
+        eq(M.alertLine("LF1M tank", nil, "Lurra"), "Group Finder: \"LF1M tank\"")
+    end)
+    it("never hands a secret to RaidWarning, which measures the line", function()
+        local secret = {}
+        _G.issecretvalue = function(v) return v == secret end
+        -- an unreadable title falls back to the leader, who is real text
+        eq(M.alertLine(secret, secret, "Lurra-Stormrage"), "Group Finder: Lurra")
+        eq(M.alertLine(secret, "Manaforge", secret), "Group Finder: a group — Manaforge")
+        _G.issecretvalue = nil
+    end)
+    it("always names something, so the banner is never a bare label", function()
+        ok(M.alertLine(nil, nil, nil):find("a group", 1, true), "subject")
+    end)
+end)
+
 describe("isOwnListing", function()
     it("knows your own listing by the flag the listing itself carries", function()
         eq(M.isOwnListing(true, "Someoneelse", nil), true)

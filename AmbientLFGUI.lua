@@ -127,8 +127,14 @@ Refresh = function()
 			seats[#seats + 1] = CreateAtlasMarkup(ROLE_UI[role].atlas, 14, 14) .. " " .. ROLE_UI[role].label
 		end
 	end
-	local dungeons = ns.WatchingDungeons()
-	if #seats > 0 then
+	local category = ns.WatchedCategory()
+	local dungeons = category == ns.Match.CATEGORY_DUNGEONS
+	local raids = category == ns.Match.CATEGORY_RAIDS
+	if not category then
+		-- nothing is being watched, so there are no seats to speak of; the
+		-- status line already says so and says what to do about it
+		ui.rolesText:SetText("")
+	elseif #seats > 0 then
 		ui.rolesText:SetText(("Alerting on an open seat for |cffffd100%s|r — %s"):format(
 			table.concat(seats, ", "),
 			dungeons and "set in the Group Finder's Filter"
@@ -140,15 +146,27 @@ Refresh = function()
 		-- "tick one in the Filter" here would be advice that does nothing
 		ui.rolesText:SetText("Alerting on |cffffd100every group|r the search returns — tick a role below to narrow it")
 	end
+
+	-- The raid role choice is the addon's own filter and applies to raid
+	-- searches alone, so it is only on screen while one is being watched. A
+	-- control that cannot affect the running search is one you set and then
+	-- watch do nothing.
 	local auto = ns.RaidRolesAreAuto()
 	local raid = ns.GetRaidRoles()
+	ui.raidAutoCB:SetShown(raids)
 	ui.raidAutoCB:SetChecked(auto)
 	for _, role in ipairs(ROLE_ORDER) do
 		local cb = ui.raidRoleCB[role]
+		cb:SetShown(raids)
 		cb:SetChecked(raid[role] and true or false)
 		cb:SetEnabled(not auto)
 		cb.label:SetTextColor(auto and 0.5 or 1, auto and 0.5 or 1, auto and 0.5 or 1)
 	end
+	-- a hidden frame still anchors, so what follows would keep its gap
+	ui.watchText:ClearAllPoints()
+	ui.watchText:SetPoint("TOPLEFT", raids and ui.raidRoleCB[ROLE_ORDER[1]] or ui.rolesText,
+		"BOTTOMLEFT", raids and -16 or 0, -8)
+	ui.watchText:SetPoint("RIGHT", ui, "RIGHT", -PADDING, 0)
 	if not ui.intervalBox:HasFocus() then
 		ui.intervalBox:SetText(tostring(db.interval))
 	end

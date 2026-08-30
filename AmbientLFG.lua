@@ -304,8 +304,7 @@ local function alertMatches(hits)
 	FlashClientIcon()
 	for i = 1, math.min(#hits, 3) do
 		RaidNotice_AddMessage(RaidWarningFrame,
-			("Group Finder: \"%s\"%s"):format(hits[i].name,
-				hits[i].activity and (" — " .. hits[i].activity) or ""),
+			Match.alertLine(hits[i].name, hits[i].activity, hits[i].leader),
 			ChatTypeInfo["RAID_WARNING"])
 	end
 	if #hits > 3 then
@@ -689,6 +688,11 @@ local firePendingSearch -- assigned once issueSearch is in scope
 -- a queued search to just sit there. The watcher propagates every key onward
 -- untouched, so it changes nothing about what that key does, and it listens
 -- only while a search is actually queued.
+--
+-- It also stands down in combat. Handing the keystroke back on is a protected
+-- call there, so an addon that listens in combat is blocked from returning the
+-- key, and the block is reported against the addon. A queued search waits for
+-- the next click instead, which costs a cycle and nothing else.
 local keyWatcher = CreateFrame("Frame", nil, UIParent)
 keyWatcher:SetPropagateKeyboardInput(true)
 keyWatcher:EnableKeyboard(false)
@@ -696,11 +700,18 @@ keyWatcher:SetScript("OnKeyDown", function(self)
 	self:SetPropagateKeyboardInput(true)
 	firePendingSearch()
 end)
+keyWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
+keyWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+
+local function listenForKeys()
+	keyWatcher:EnableKeyboard(pendingAuto and not InCombatLockdown())
+end
+keyWatcher:SetScript("OnEvent", listenForKeys)
 
 local function setPending(state)
 	pendingAuto = state
 	stats.pending = state
-	keyWatcher:EnableKeyboard(state)
+	listenForKeys()
 end
 
 local function autoSearch()
@@ -892,6 +903,13 @@ local function watchedSearch()
 	return searchDescription(lastSearch[1], boxText)
 end
 
+-- Which section the watched search is in, or nil when there has been no search.
+-- The window hangs a raid-only control off this, so everyone asks the one
+-- question rather than keeping a boolean each and letting them disagree.
+local function watchedCategory()
+	return lastSearch and lastSearch[1] or nil
+end
+
 -- Nil outside a raid search; otherwise what the box does or does not narrow to.
 local function raidDifficulty()
 	if not armed() then
@@ -910,7 +928,7 @@ local function status()
 		or (watching and ("watching: %s"):format(watching))
 		or "nothing to watch — open the Group Finder, set up the search you want, and run it once")
 	msg("alerting when there is an open seat for: " .. rolesToString(wantedRoles())
-		.. (ns.WatchingDungeons() and " (set in the Group Finder's Filter)"
+		.. (watchedCategory() == Match.CATEGORY_DUNGEONS and " (set in the Group Finder's Filter)"
 			or db.raidRoles and " (raids: set in /alfg ui)"
 			or " (raids: your current spec)"))
 	msg("ignoring groups containing: " .. (#db.ignores > 0 and table.concat(db.ignores, ", ") or "(nothing)"))
@@ -1072,9 +1090,7 @@ end
 ns.SetRaidRoles = function(roles)
 	db.raidRoles = roles
 end
-ns.WatchingDungeons = function()
-	return lastSearch ~= nil and lastSearch[1] == Match.CATEGORY_DUNGEONS
-end
+ns.WatchedCategory = watchedCategory
 ns.GetMatches = function() return matches end
 ns.BlockLeader = blockLeader
 ns.ResetAlerted = function() wipe(alerted); wipe(preexisting) end

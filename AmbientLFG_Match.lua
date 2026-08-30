@@ -51,6 +51,21 @@ function Match.shortName(name)
 	return s:match("^([^%-]+)") or s
 end
 
+-- The line a raid-warning banner is given. Every field of a listing can arrive
+-- as a secret value, and formatting one makes the whole line secret — Blizzard's
+-- RaidWarning measures the line it is handed, so a secret line kills Blizzard's
+-- own code doing arithmetic on the length. Anything unreadable is dropped, and
+-- the leader's name stands in for a title that cannot be read.
+function Match.alertLine(name, activity, leader)
+	local title = Match.safeStr(name)
+	local who = title ~= "" and ('"' .. title .. '"') or Match.shortName(leader)
+	if who == "" then
+		who = "a group"
+	end
+	local act = Match.safeStr(activity)
+	return ("Group Finder: %s%s"):format(who, act ~= "" and (" — " .. act) or "")
+end
+
 -- Your own group's listing comes back in your own search results. It is not a
 -- group to join, so it never alerts and never sits in the matches list. A
 -- listing reports hasSelf, which is exactly this question; when that flag is
