@@ -158,13 +158,13 @@ Refresh = function()
 
 	-- The watched search is the whole filter now, and it lives in the Group
 	-- Finder rather than here, so the window has to say what it currently is —
-	-- unsaid, it is invisible state that reads as the addon being broken.
+	-- unsaid, it is invisible state that reads as the addon being broken. This
+	-- line names the search and nothing else; why there isn't one, and what to
+	-- do about it, belongs to the status line and is only said there.
 	local watching = ns.GetWatchedSearch()
 	ui.watchText:SetText(watching
 		and ("Watching |cffffd100%s|r"):format(watching)
-		or ns.CannotSearchReason()
-			and ("|cffffcc00Nothing to watch|r — %s"):format(ns.CannotSearchReason())
-		or "|cffffcc00Nothing to watch|r — type what you want in the Group Finder's search box (e.g. 14-14) and search once")
+		or "|cffffcc00Nothing to watch|r")
 
 	-- live list of currently-listed groups; the opaque title tokens render as
 	-- real text inside a FontString
