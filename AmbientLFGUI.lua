@@ -27,6 +27,18 @@ local function MakeCheckbox(parent, label, onClick)
 	return cb
 end
 
+-- Single-choice controls are radio buttons: a checkbox invites the reading
+-- that several can be ticked at once. Exclusivity differs per group, so the
+-- caller wires OnClick.
+local function MakeRadio(parent, label)
+	local rb = CreateFrame("CheckButton", nil, parent, "UIRadioButtonTemplate")
+	local text = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	text:SetPoint("LEFT", rb, "RIGHT", 2, 0)
+	text:SetText(label)
+	rb.label = text
+	return rb
+end
+
 local function MakeButton(parent, label, width, onClick)
 	local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
 	btn:SetSize(width, 22)
@@ -406,81 +418,40 @@ local function CreateUI()
 	f.addBox:SetPoint("RIGHT", f, "RIGHT", -PADDING, 0)
 	f.addBox:SetAutoFocus(false)
 
-	-- section picker (radio-style pair, raids default)
-	local raidCB = MakeCheckbox(f, "Raids", function() end)
+	-- section picker (raids default)
+	local raidCB = MakeRadio(f, "Raids")
 	raidCB:SetPoint("TOPLEFT", f.addBox, "BOTTOMLEFT", -6, -2)
-	local dungeonCB = MakeCheckbox(f, "Dungeons", function() end)
+	local dungeonCB = MakeRadio(f, "Dungeons")
 	dungeonCB:SetPoint("LEFT", raidCB.label, "RIGHT", 12, 0)
-	raidCB:SetScript("OnClick", function()
-		raidCB:SetChecked(true)
-		dungeonCB:SetChecked(false)
-		f.layoutDiffs()
-	end)
-	dungeonCB:SetScript("OnClick", function()
-		dungeonCB:SetChecked(true)
-		raidCB:SetChecked(false)
-		f.layoutDiffs()
-	end)
-	raidCB:SetChecked(true)
 	f.raidCB, f.dungeonCB = raidCB, dungeonCB
 
-	-- difficulty picker (optional; mutually exclusive, click again to clear).
-	-- Difficulty is matched via the activity name, so each option just
-	-- contributes the corresponding rule word.
+	-- Difficulty is matched through the activity name, which for a raid is
+	-- always qualified ("Nerub-ar Palace (Mythic)"), so a raid rule that names
+	-- no difficulty matches all of them at once; one is therefore always
+	-- selected. Dungeon listings are keystones in practice, so the row is
+	-- hidden there and a dungeon rule carries no difficulty word at all.
 	local DIFFS = {
 		{ label = "Normal", word = "normal" },
 		{ label = "Heroic", word = "heroic" },
 		{ label = "Mythic", word = "mythic" },
-		{ label = "M+", word = "keystone", dungeonOnly = true },
 	}
+	local DEFAULT_DIFF = 3
 	f.diffCBs = {}
-	local prevDiff
 	for i, d in ipairs(DIFFS) do
-		local cb = MakeCheckbox(f, d.label, function() end)
-		if prevDiff then
-			cb:SetPoint("LEFT", prevDiff.label, "RIGHT", 10, 0)
+		local rb = MakeRadio(f, d.label)
+		if i == 1 then
+			rb:SetPoint("TOPLEFT", raidCB, "BOTTOMLEFT", 0, -2)
 		else
-			cb:SetPoint("TOPLEFT", raidCB, "BOTTOMLEFT", 0, -2)
+			rb:SetPoint("LEFT", f.diffCBs[i - 1].label, "RIGHT", 10, 0)
 		end
-		cb:SetScript("OnClick", function(self)
-			local nowChecked = self:GetChecked()
+		rb.word = d.word
+		rb:SetScript("OnClick", function(self)
 			for _, other in ipairs(f.diffCBs) do
-				other:SetChecked(false)
+				other:SetChecked(other == self)
 			end
-			self:SetChecked(nowChecked)
 		end)
-		cb.word = d.word
-		f.diffCBs[i] = cb
-		prevDiff = cb
+		f.diffCBs[i] = rb
 	end
-
-	-- Mythic+ is a dungeon difficulty and has no raid equivalent (there is no
-	-- keystone raid activity at all), so the option is hidden while Raids is
-	-- selected rather than offered and then matching nothing. Normal, Heroic
-	-- and Mythic exist in both sections and always show. The label is a child
-	-- of the panel rather than the checkbox, so it has to be hidden alongside.
-	local function layoutDiffs()
-		local prev
-		for i, cb in ipairs(f.diffCBs) do
-			local usable = not DIFFS[i].dungeonOnly or dungeonCB:GetChecked()
-			if not usable then
-				cb:SetChecked(false)
-			end
-			cb:SetShown(usable)
-			cb.label:SetShown(usable)
-			if usable then
-				cb:ClearAllPoints()
-				if prev then
-					cb:SetPoint("LEFT", prev.label, "RIGHT", 10, 0)
-				else
-					cb:SetPoint("TOPLEFT", raidCB, "BOTTOMLEFT", 0, -2)
-				end
-				prev = cb
-			end
-		end
-	end
-	f.layoutDiffs = layoutDiffs
-	layoutDiffs()
 
 	f.roleCBs = {}
 	local anchor
@@ -493,7 +464,29 @@ local function CreateUI()
 		end
 		anchor = cb
 		f.roleCBs[role] = cb
+		f.roleAnchor = f.roleAnchor or cb
 	end
+
+	-- Hiding the difficulty row would leave a hole above the roles, so the
+	-- role row re-anchors to whichever row is last showing.
+	local function selectSection(dungeons)
+		raidCB:SetChecked(not dungeons)
+		dungeonCB:SetChecked(dungeons)
+		local anyDiff = false
+		for _, rb in ipairs(f.diffCBs) do
+			rb:SetShown(not dungeons)
+			rb.label:SetShown(not dungeons)
+			anyDiff = anyDiff or rb:GetChecked()
+		end
+		if not dungeons and not anyDiff then
+			f.diffCBs[DEFAULT_DIFF]:SetChecked(true)
+		end
+		f.roleAnchor:ClearAllPoints()
+		f.roleAnchor:SetPoint("TOPLEFT", dungeons and raidCB or f.diffCBs[1], "BOTTOMLEFT", 0, -2)
+	end
+	raidCB:SetScript("OnClick", function() selectSection(false) end)
+	dungeonCB:SetScript("OnClick", function() selectSection(true) end)
+	selectSection(false)
 
 	-- default the role selection to whatever the player's current spec is
 	local function resetRoleChecks()
@@ -510,10 +503,11 @@ local function CreateUI()
 		local input = f.addBox:GetText() or ""
 		if dungeonCB:GetChecked() then
 			input = input .. " +dungeon"
-		end
-		for _, cb in ipairs(f.diffCBs) do
-			if cb:GetChecked() then
-				input = input .. " " .. cb.word
+		else
+			for _, cb in ipairs(f.diffCBs) do
+				if cb:GetChecked() then
+					input = input .. " " .. cb.word
+				end
 			end
 		end
 		for _, role in ipairs(ROLE_ORDER) do
@@ -529,12 +523,10 @@ local function CreateUI()
 		table.insert(db.rules, rule)
 		f.addBox:SetText("")
 		f.addBox:ClearFocus()
-		raidCB:SetChecked(true)
-		dungeonCB:SetChecked(false)
 		for _, cb in ipairs(f.diffCBs) do
 			cb:SetChecked(false)
 		end
-		layoutDiffs()
+		selectSection(false)
 		resetRoleChecks()
 		Refresh()
 	end

@@ -3,7 +3,7 @@
 ## 0.3.5
 - Fix: `/alfg add +18` was rejected as an unknown tag, so the keystone filtering 0.3.4 added could not actually be typed the way the docs described it. `+18` and `18` now mean the same thing, and a key matches whether or not the group typed the plus.
 - Fix: a rule with no `+raid` or `+dungeon` searched raids only, so a keystone rule alerted on nothing while reporting listings scanned. Untagged rules now search both sections, which is what they already matched against.
-- The M+ difficulty option now appears only when Dungeons is selected. There is no keystone raid, so on Raids it could only ever have matched nothing.
+- Section and difficulty are radio buttons now, since only one of each was ever selectable. Raids always has a difficulty selected — an unqualified raid rule matched Normal, Heroic and Mythic at once — and Dungeons hides the difficulty row entirely rather than offering M+ next to raid difficulties.
 - A queued background search now also fires on a keypress, not only on a click in the world. WoW requires a hardware event to run the search, and if you move with the keyboard you could go a long stretch without clicking anything while searches waited.
 
 ## 0.3.4
