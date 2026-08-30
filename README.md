@@ -7,7 +7,7 @@ Watches the WoW Premade Group Finder for the groups you're actually looking for 
 You set up the search you want in Blizzard's own Group Finder — category, filters, and the search box, including a keystone level or a range like `12-14`. Run it once. AmbientLFG then replays exactly that search in the background and alerts you when a group comes up that has a seat you can fill.
 
 - **Alerts**: raid-warning banner, sound, and a flashing taskbar icon if you're alt-tabbed.
-- **Roles**: tick the roles you can play. A group alerts if any one of them still has an open seat. Tick none and every group the search returns will alert.
+- **Roles**: whichever "role available" boxes you ticked in the Group Finder's own Filter. A group alerts if any one of those seats is still open. Tick none and every group the search returns will alert. The addon reads that setting rather than keeping a second copy of it — and re-checks it itself for raids, where Blizzard drops the filter.
 - **Background watching**: one switch. While it is ticked the addon re-runs your search every few seconds as you play, pausing while you browse the Group Finder yourself and resuming when you close it.
 - **Live matches list**: the `/alfg` window shows every currently-listed matching group with its tank/healer/dps counts, activity and title.
 - **Seller filtering**: boost/carry advertisers are recognized and hidden automatically; block any leader forever with one click.
@@ -24,7 +24,7 @@ The filter keeps applying once you close the window, which is why the `/alfg` wi
 
 1. Open the Group Finder, set up the search you want, and run it once
 2. `/alfg` to open the settings window
-3. Tick the roles you can play
+3. Tick the roles you can play in the Group Finder's Filter button
 4. Tick "Watch every N sec"
 5. When the alert fires, open the Group Finder and sign up
 
@@ -32,4 +32,4 @@ Signing up stays a manual click — Blizzard requires it — so pairing this wit
 
 ## Commands
 
-`/alfg` opens the window. `/alfg roles tank dps` (or `any`), `/alfg on`, `/alfg interval 15`, `/alfg ignore wts`, `/alfg block <leader>`, `/alfg diag` to see exactly what the addon received for the listings on screen.
+`/alfg` opens the window. `/alfg on`, `/alfg interval 15`, `/alfg ignore wts`, `/alfg block <leader>`, `/alfg diag` to see exactly what the addon received for the listings on screen.

@@ -1,10 +1,7 @@
 local ADDON_NAME, ns = ...
 
--- Roles are a set rather than a list: it is one global setting ("which roles
--- can you fill"), not a per-listing rule, and an empty set means any listing.
 local defaults = {
 	enabled = true,
-	roles = {},
 	ignores = { "wts", "sell", "boost", "carry" },
 	sound = true,
 	interval = 10,
@@ -19,7 +16,7 @@ local safeStr, safeBool, safeNum = Match.safeStr, Match.safeBool, Match.safeNum
 local normalizeText, matchesIgnoreWord = Match.normalizeText, Match.matchesIgnoreWord
 local roleIsOpen, matchableText = Match.roleIsOpen, Match.matchableText
 local rolesToList, rolesToString = Match.rolesToList, Match.rolesToString
-local parseRoles, searchDescription = Match.parseRoles, Match.searchDescription
+local searchDescription = Match.searchDescription
 
 local db
 local frame = CreateFrame("Frame")
@@ -109,6 +106,25 @@ local function activityData(info)
 	return names, categoryID, maxPlayers, display
 end
 
+-- Which seats you can take is Blizzard's own Filter setting — "Tank role
+-- available" and friends — read back rather than asked for a second time.
+-- Two settings for one thing can disagree, and a disagreement (its Tank, our
+-- DPS) matches nothing while looking exactly like the addon being broken.
+--
+-- Blizzard applies this filter to Dungeons only; it drops it for every other
+-- category. Re-checking it here is what makes it work for raids too.
+local function wantedRoles()
+	local f = C_LFGList.GetAdvancedFilter and C_LFGList.GetAdvancedFilter()
+	if type(f) ~= "table" then
+		return {}
+	end
+	return {
+		TANK = safeBool(f.needsTank) and true or nil,
+		HEALER = safeBool(f.needsHealer) and true or nil,
+		DAMAGER = safeBool(f.needsDamage) and true or nil,
+	}
+end
+
 -- What the search returned is what the player asked for — the addon does not
 -- second-guess it. All that is left to decide per listing is whether there is
 -- a seat you could take.
@@ -116,7 +132,7 @@ end
 -- Roles are either/or, not all-of: ticking Tank and Healer says which roles
 -- you can play, and a group needing every role at once is an empty group.
 local function rolesOpen(resultID, info, categoryID, maxPlayers)
-	local wanted = rolesToList(db.roles)
+	local wanted = rolesToList(wantedRoles())
 	if #wanted == 0 then
 		return true
 	end
@@ -775,6 +791,7 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 		end
 		db.keywords = nil -- pre-rule format, never shipped
 		db.flash = nil -- taskbar flashing is unconditional now
+		db.roles = nil -- Blizzard's own Filter says which seats you can take
 		-- Enabled and auto-search were two switches for one thing: watching
 		-- means searching, and the addon saw nothing without it. Either one
 		-- off meant not watching, so either one off stays off.
@@ -799,13 +816,6 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 		-- now and the saved rules are dropped rather than migrated.
 		if db.rules then
 			db.rules = nil
-			if next(db.roles) == nil then
-				local spec = GetSpecialization and GetSpecialization()
-				local myRole = spec and GetSpecializationRole and GetSpecializationRole(spec)
-				if myRole then
-					db.roles[myRole] = true
-				end
-			end
 			msg("rules have been replaced by the search you run yourself — open the Group Finder, set up the search you want, run it once, and /alfg watches it.")
 		end
 		boxText = type(db.boxText) == "string" and db.boxText or ""
@@ -861,7 +871,8 @@ local function status()
 	msg(watching
 		and ("watching: %s"):format(watching)
 		or "nothing to watch — open the Group Finder, set up the search you want, and run it once")
-	msg("alerting when there is an open seat for: " .. rolesToString(db.roles))
+	msg("alerting when there is an open seat for: " .. rolesToString(wantedRoles())
+		.. " (set in the Group Finder's Filter)")
 	msg("ignoring groups containing: " .. (#db.ignores > 0 and table.concat(db.ignores, ", ") or "(nothing)"))
 end
 
@@ -903,7 +914,7 @@ local function diag()
 	-- the pair reports is whether the client dropped anything further. Whether
 	-- the box narrowed is answered by the key levels in the rows below.
 	msg(("diag: box=%q (live %q) raw=%d filtered=%d"):format(boxText, searchBoxText(), rawN, filtN))
-	msg(("  watching: %s | seats wanted: %s"):format(watchedSearch() or "(nothing)", rolesToString(db.roles)))
+	msg(("  watching: %s | seats wanted: %s"):format(watchedSearch() or "(nothing)", rolesToString(wantedRoles())))
 
 	local results = searchResults()
 	if type(results) ~= "table" or #results == 0 then
@@ -924,7 +935,7 @@ local function diag()
 			end
 			local verdict = blockedReason(haystack, leader, comment)
 			if not verdict and not rolesOpen(resultID, info, categoryID, maxPlayers) then
-				verdict = "no open seat for " .. rolesToString(db.roles)
+				verdict = "no open seat for " .. rolesToString(wantedRoles())
 			end
 			msg(("  [%d] name=%s %q cmt=%s cat=%s %s act=%q -> %s"):format(
 				i, fieldKind(info.name), safeStr(info.name):sub(1, 40),
@@ -943,20 +954,7 @@ SLASH_AMBIENTLFG3 = "/pma"
 SlashCmdList.AMBIENTLFG = function(input)
 	local cmd, rest = input:match("^%s*(%S*)%s*(.-)%s*$")
 	cmd = cmd:lower()
-	if cmd == "roles" and rest ~= "" then
-		if rest:lower() == "any" then
-			db.roles = {}
-			msg("alerting on any group the search returns")
-		else
-			local roles, err = parseRoles(rest)
-			if roles then
-				db.roles = roles
-				msg("alerting when there is an open seat for: " .. rolesToString(roles))
-			else
-				msg(err)
-			end
-		end
-	elseif cmd == "on" or cmd == "off" then
+	if cmd == "on" or cmd == "off" then
 		db.enabled = cmd == "on"
 		restartTicker()
 		status()
@@ -1010,7 +1008,7 @@ SlashCmdList.AMBIENTLFG = function(input)
 	elseif cmd == "list" or cmd == "" or cmd == "status" then
 		status()
 	else
-		msg("commands: ui, roles <tank healer dps|any>, ignore <word>, unignore <word>, block <leader>, unblock <leader>, on/off, interval <sec>, debug on/off, reset, test, diag")
+		msg("commands: ui, ignore <word>, unignore <word>, block <leader>, unblock <leader>, on/off, interval <sec>, debug on/off, reset, test, diag")
 	end
 end
 
@@ -1022,6 +1020,7 @@ ns.IsArmed = armed
 ns.GetWatchedSearch = watchedSearch
 ns.GetStats = function() return stats end
 ns.GetSearchBoxText = searchBoxText
+ns.GetWantedRoles = wantedRoles
 ns.GetMatches = function() return matches end
 ns.BlockLeader = blockLeader
 ns.ResetAlerted = function() wipe(alerted); wipe(preexisting) end

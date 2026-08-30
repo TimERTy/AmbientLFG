@@ -121,9 +121,15 @@ Refresh = function()
 	ui.enabledCB:SetChecked(db.enabled)
 	ui.soundCB:SetChecked(db.sound)
 	ui.debugCB:SetChecked(db.debug)
-	for role, cb in pairs(ui.roleCBs) do
-		cb:SetChecked(db.roles and db.roles[role] or false)
+	local seats = {}
+	for _, role in ipairs(ROLE_ORDER) do
+		if ns.GetWantedRoles()[role] then
+			seats[#seats + 1] = CreateAtlasMarkup(ROLE_UI[role].atlas, 14, 14) .. " " .. ROLE_UI[role].label
+		end
 	end
+	ui.rolesText:SetText(#seats > 0
+		and ("Alerting on an open seat for |cffffd100%s|r — set in the Group Finder's Filter"):format(table.concat(seats, ", "))
+		or "Alerting on |cffffd100every group|r the search returns — tick a \"role available\" box in the Group Finder's Filter to narrow it")
 	if not ui.intervalBox:HasFocus() then
 		ui.intervalBox:SetText(tostring(db.interval))
 	end
@@ -326,39 +332,18 @@ local function CreateUI()
 	end)
 	f.debugCB:SetPoint("LEFT", f.soundCB.label, "RIGHT", 16, 0)
 
-	-- Roles are one global setting, not a property of a rule: they say which
-	-- seats you can take. None ticked means every group the search returns.
-	local rolesLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	rolesLabel:SetPoint("TOPLEFT", f.enabledCB, "BOTTOMLEFT", 0, -10)
-	rolesLabel:SetText("Alert me when a group has an open seat for:")
-	rolesLabel:SetTextColor(0.7, 0.7, 0.7)
-
-	f.roleCBs = {}
-	local anchor
-	for _, role in ipairs(ROLE_ORDER) do
-		local cb = MakeCheckbox(f, CreateAtlasMarkup(ROLE_UI[role].atlas, 14, 14) .. " " .. ROLE_UI[role].label,
-			function(checked)
-				local db = getDb()
-				db.roles = db.roles or {}
-				db.roles[role] = checked or nil
-				Refresh()
-			end)
-		if anchor then
-			cb:SetPoint("LEFT", anchor.label, "RIGHT", 12, 0)
-		else
-			cb:SetPoint("TOPLEFT", rolesLabel, "BOTTOMLEFT", 0, -2)
-		end
-		anchor = cb
-		f.roleCBs[role] = cb
-	end
-
-	f.anyRoleNote = f:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-	f.anyRoleNote:SetPoint("LEFT", anchor.label, "RIGHT", 12, 0)
-	f.anyRoleNote:SetText("(none = any group)")
+	-- Which seats you can take is Blizzard's own "role available" filter,
+	-- shown here rather than asked for again: a second copy of a setting can
+	-- disagree with the first, and the disagreement matches nothing.
+	f.rolesText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	f.rolesText:SetPoint("TOPLEFT", f.enabledCB, "BOTTOMLEFT", 0, -10)
+	f.rolesText:SetPoint("RIGHT", f, "RIGHT", -PADDING, 0)
+	f.rolesText:SetJustifyH("LEFT")
+	f.rolesText:SetWordWrap(true)
 
 	-- What is being watched, above the list it produces
 	f.watchText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	f.watchText:SetPoint("TOPLEFT", f.roleCBs[ROLE_ORDER[1]], "BOTTOMLEFT", 0, -8)
+	f.watchText:SetPoint("TOPLEFT", f.rolesText, "BOTTOMLEFT", 0, -8)
 	f.watchText:SetPoint("RIGHT", f, "RIGHT", -PADDING, 0)
 	f.watchText:SetJustifyH("LEFT")
 	f.watchText:SetWordWrap(true)

@@ -9,11 +9,6 @@ local _, ns = ...
 local Match = {}
 ns.Match = Match
 
-Match.ROLE_TOKENS = {
-	tank = "TANK", tanks = "TANK",
-	healer = "HEALER", heal = "HEALER", heals = "HEALER", healers = "HEALER",
-	dps = "DAMAGER", dd = "DAMAGER", damager = "DAMAGER",
-}
 Match.ROLE_ORDER = { "TANK", "HEALER", "DAMAGER" }
 Match.ROLE_REMAINING = {
 	TANK = "TANK_REMAINING",
@@ -185,25 +180,6 @@ function Match.rolesToString(roles)
 		parts[#parts + 1] = Match.ROLE_LABEL[role]
 	end
 	return table.concat(parts, ", ")
-end
-
--- "tank dps" / "+tank +dps" -> { TANK = true, DAMAGER = true }. Both spellings
--- because the slash command reads the same words the old rule tags used.
-function Match.parseRoles(input)
-	local roles, seen = {}, false
-	for token in (input or ""):gmatch("%S+") do
-		local word = token:gsub("^%+", ""):lower()
-		local role = Match.ROLE_TOKENS[word]
-		if not role then
-			return nil, ("unknown role \"%s\" (use tank, healer, dps)"):format(word)
-		end
-		roles[role] = true
-		seen = true
-	end
-	if not seen then
-		return nil, "name at least one role, or \"any\""
-	end
-	return roles
 end
 
 -- Raid listings have no per-role caps, so Blizzard's *_REMAINING counts are
