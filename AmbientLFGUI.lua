@@ -162,7 +162,11 @@ Refresh = function()
 	-- names the search and nothing else: with no search there is nothing to
 	-- name, and the status line already says so and says what to do about it.
 	local watching = ns.GetWatchedSearch()
-	ui.watchText:SetText(watching and ("Watching |cffffd100%s|r"):format(watching) or "")
+	local hint, narrowed = ns.RaidDifficultyHint()
+	ui.watchText:SetText(watching
+		and ("Watching |cffffd100%s|r"):format(watching)
+			.. (hint and ("\n%s%s|r"):format(narrowed and "|cff66ff66" or "|cffffcc00", hint) or "")
+		or "")
 
 	-- live list of currently-listed groups; the opaque title tokens render as
 	-- real text inside a FontString

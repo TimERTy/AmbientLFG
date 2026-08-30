@@ -859,6 +859,14 @@ local function watchedSearch()
 	return searchDescription(lastSearch[1], boxText)
 end
 
+-- Nil outside a raid search; otherwise what the box does or does not narrow to.
+local function raidDifficulty()
+	if not armed() then
+		return nil
+	end
+	return Match.raidDifficultyHint(lastSearch[1], boxText)
+end
+
 -- Nil unless the game is currently refusing to show the search panel.
 local function cannotSearch()
 	if not (C_LFGList.HasActiveEntryInfo and C_LFGList.HasActiveEntryInfo()) then
@@ -1026,6 +1034,7 @@ ns.restartTicker = restartTicker
 ns.GetDB = function() return db end
 ns.IsArmed = armed
 ns.GetWatchedSearch = watchedSearch
+ns.RaidDifficultyHint = raidDifficulty
 ns.CannotSearchReason = cannotSearch
 ns.GetStats = function() return stats end
 ns.GetSearchBoxText = searchBoxText

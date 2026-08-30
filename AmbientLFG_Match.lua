@@ -238,6 +238,30 @@ function Match.searchDescription(categoryID, boxText)
 	return where
 end
 
+-- A raid activity is named for its difficulty — "Manaforge Omega (Heroic)" —
+-- and the search box's autocomplete matches those names, so typing "(hero" and
+-- taking the entry it offers pins the search to that one activity. Nothing else
+-- in the Group Finder filters a raid search by difficulty: the role boxes are a
+-- Dungeons filter and the key-range parsing is a Dungeons behaviour. So a raid
+-- search with no difficulty in the box is watching all four at once, which is
+-- almost never what the player means, and the window says so.
+Match.RAID_DIFFICULTIES = { "lfr", "normal", "heroic", "mythic" }
+
+function Match.raidDifficultyHint(categoryID, boxText)
+	if categoryID ~= Match.CATEGORY_RAIDS then
+		return nil
+	end
+	local lower = (boxText or ""):lower()
+	for _, difficulty in ipairs(Match.RAID_DIFFICULTIES) do
+		-- four letters, so "(hero" and "heroic" both hit and neither has to be
+		-- typed in full — the same prefix the autocomplete answers to
+		if lower:find(difficulty:sub(1, 4), 1, true) then
+			return ("%s only"):format(difficulty), true
+		end
+	end
+	return "every difficulty — type \"(heroic\" or \"(mythic\" in the box and pick the entry it offers", false
+end
+
 -- While your own listing is up the Group Finder shows your applicants and the
 -- search panel is unreachable, so "run a search once to arm it" is advice that
 -- cannot be followed and reads as the addon being broken. The game puts a
