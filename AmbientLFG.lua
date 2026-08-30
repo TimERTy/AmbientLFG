@@ -16,7 +16,7 @@ local defaults = {
 -- the game); this file keeps the WoW-API-touching orchestration.
 local Match = ns.Match
 local safeStr, safeBool, safeNum = Match.safeStr, Match.safeBool, Match.safeNum
-local fuzzyPattern, normalizeText = Match.fuzzyPattern, Match.normalizeText
+local normalizeText, wordMatches = Match.normalizeText, Match.wordMatches
 local matchesIgnoreWord, ruleToString, parseRule = Match.matchesIgnoreWord, Match.ruleToString, Match.parseRule
 local roleIsOpen, matchableText = Match.roleIsOpen, Match.matchableText
 local CATEGORY_DUNGEONS, CATEGORY_RAIDS = Match.CATEGORY_DUNGEONS, Match.CATEGORY_RAIDS
@@ -97,7 +97,7 @@ local function ruleMatches(rule, haystack, resultID, info, categoryID, maxPlayer
 		return false
 	end
 	for _, word in ipairs(rule.words) do
-		if not haystack:find(fuzzyPattern(word)) then
+		if not wordMatches(haystack, word) then
 			return false
 		end
 	end
@@ -770,6 +770,77 @@ local function status()
 	msg("ignoring groups containing: " .. (#db.ignores > 0 and table.concat(db.ignores, ", ") or "(nothing)"))
 end
 
+-- A listing that fails to match looks the same from outside whether its title
+-- was unreadable, its roles were full, or the result was a husk. /alfg diag
+-- records what the addon actually received for the listings on screen — the
+-- kind of each text field, and the haystack a rule is matched against. Chat
+-- truncates and can't be copied, so the dump goes to SavedVariables, which a
+-- /reload flushes to disk.
+local function fieldKind(v)
+	if v == nil then
+		return "nil"
+	elseif issecretvalue and issecretvalue(v) then
+		return "secret"
+	elseif type(v) ~= "string" then
+		return type(v)
+	elseif v:find("^|K") then
+		return "kstring"
+	end
+	return "text"
+end
+
+local DIAG_LIMIT = 25
+local function diag()
+	local count, results, totalResults = C_LFGList.GetSearchResults()
+	if type(results) ~= "table" then
+		msg("diag: no search results yet — search once in the Group Finder first")
+		return
+	end
+	local dump = {
+		at = date("%Y-%m-%d %H:%M:%S"),
+		firstReturn = safeNum(count),
+		thirdReturn = safeNum(totalResults),
+		returned = #results,
+		rules = {},
+		listings = {},
+	}
+	for _, rule in ipairs(db.rules) do
+		dump.rules[#dump.rules + 1] = ruleToString(rule)
+	end
+	for i = 1, math.min(#results, DIAG_LIMIT) do
+		local resultID = results[i]
+		local info = type(resultID) == "number" and C_LFGList.GetSearchResultInfo(resultID) or nil
+		if info then
+			local name, leader, ready = listingIdentity(info)
+			local haystack, categoryID, _, _, actDisplay = listingHaystack(info, name, leader)
+			local entry = {
+				ready = ready,
+				delisted = safeBool(info.isDelisted) and true or false,
+				nameKind = fieldKind(info.name),
+				name = safeStr(info.name):sub(1, 80),
+				commentKind = fieldKind(info.comment),
+				comment = safeStr(info.comment):sub(1, 80),
+				leader = safeStr(info.leaderName),
+				category = categoryID,
+				activity = actDisplay,
+				haystack = haystack,
+				misses = {},
+			}
+			for _, rule in ipairs(db.rules) do
+				for _, word in ipairs(rule.words) do
+					if not wordMatches(haystack, word) then
+						entry.misses[#entry.misses + 1] = word
+					end
+				end
+			end
+			dump.listings[#dump.listings + 1] = entry
+		end
+	end
+	db.diag = dump
+	msg(("diag: %d listings on hand, %d recorded — now /reload so it is written out")
+		:format(dump.returned, #dump.listings))
+end
+
 SLASH_AMBIENTLFG1 = "/ambientlfg"
 SLASH_AMBIENTLFG2 = "/alfg"
 SLASH_AMBIENTLFG3 = "/pma"
@@ -844,12 +915,14 @@ SlashCmdList.AMBIENTLFG = function(input)
 	elseif cmd == "reset" then
 		wipe(alerted)
 		msg("alert history cleared — already-seen groups will alert again")
+	elseif cmd == "diag" then
+		diag()
 	elseif cmd == "test" then
 		alertMatches({ { name = "Test Group", rule = "test" } })
 	elseif cmd == "list" or cmd == "" or cmd == "status" then
 		status()
 	else
-		msg("commands: ui, add <words> [+tank +healer +dps +raid +dungeon], del <n>, clear, list, ignore <word>, unignore <word>, block <leader>, unblock <leader>, on/off, auto on/off, interval <sec>, debug on/off, reset, test")
+		msg("commands: ui, add <words> [+tank +healer +dps +raid +dungeon], del <n>, clear, list, ignore <word>, unignore <word>, block <leader>, unblock <leader>, on/off, auto on/off, interval <sec>, debug on/off, reset, test, diag")
 	end
 end
 

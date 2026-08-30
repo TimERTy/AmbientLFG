@@ -14,29 +14,36 @@ local ROLE_UI = {
 	DAMAGER = { label = "DPS", atlas = "roleicon-tiny-dps" },
 }
 
+-- The label sits outside the button's hit rect, so clicking the word did
+-- nothing. A transparent button over the text forwards the click. The label
+-- is parented to the button so it shows and hides with it.
+local function attachLabel(cb, label)
+	local text = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	text:SetPoint("LEFT", cb, "RIGHT", 2, 0)
+	text:SetText(label)
+	local hit = CreateFrame("Button", nil, cb)
+	hit:SetAllPoints(text)
+	hit:SetScript("OnClick", function()
+		cb:Click()
+	end)
+	cb.label = text
+	return cb
+end
+
 local function MakeCheckbox(parent, label, onClick)
 	local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
 	cb:SetSize(24, 24)
-	local text = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	text:SetPoint("LEFT", cb, "RIGHT", 2, 0)
-	text:SetText(label)
-	cb.label = text
 	cb:SetScript("OnClick", function(self)
 		onClick(self:GetChecked() and true or false)
 	end)
-	return cb
+	return attachLabel(cb, label)
 end
 
 -- Single-choice controls are radio buttons: a checkbox invites the reading
 -- that several can be ticked at once. Exclusivity differs per group, so the
 -- caller wires OnClick.
 local function MakeRadio(parent, label)
-	local rb = CreateFrame("CheckButton", nil, parent, "UIRadioButtonTemplate")
-	local text = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	text:SetPoint("LEFT", rb, "RIGHT", 2, 0)
-	text:SetText(label)
-	rb.label = text
-	return rb
+	return attachLabel(CreateFrame("CheckButton", nil, parent, "UIRadioButtonTemplate"), label)
 end
 
 local function MakeButton(parent, label, width, onClick)
@@ -427,9 +434,10 @@ local function CreateUI()
 
 	-- Difficulty is matched through the activity name, which for a raid is
 	-- always qualified ("Nerub-ar Palace (Mythic)"), so a raid rule that names
-	-- no difficulty matches all of them at once; one is therefore always
-	-- selected. Dungeon listings are keystones in practice, so the row is
-	-- hidden there and a dungeon rule carries no difficulty word at all.
+	-- no difficulty matches all of them at once; at least one stays ticked.
+	-- Several may be ticked, becoming one alternation word. Dungeon listings
+	-- are keystones in practice, so the row is hidden there and a dungeon rule
+	-- carries no difficulty word at all.
 	local DIFFS = {
 		{ label = "Normal", word = "normal" },
 		{ label = "Heroic", word = "heroic" },
@@ -437,20 +445,30 @@ local function CreateUI()
 	}
 	local DEFAULT_DIFF = 3
 	f.diffCBs = {}
-	for i, d in ipairs(DIFFS) do
-		local rb = MakeRadio(f, d.label)
-		if i == 1 then
-			rb:SetPoint("TOPLEFT", raidCB, "BOTTOMLEFT", 0, -2)
-		else
-			rb:SetPoint("LEFT", f.diffCBs[i - 1].label, "RIGHT", 10, 0)
+	local function anyDiffChecked()
+		for _, cb in ipairs(f.diffCBs) do
+			if cb:GetChecked() then
+				return true
+			end
 		end
-		rb.word = d.word
-		rb:SetScript("OnClick", function(self)
-			for _, other in ipairs(f.diffCBs) do
-				other:SetChecked(other == self)
+		return false
+	end
+	for i, d in ipairs(DIFFS) do
+		local cb
+		cb = MakeCheckbox(f, d.label, function(checked)
+			-- unticking the last one would silently widen the rule to every
+			-- difficulty at once, so refuse it
+			if not checked and not anyDiffChecked() then
+				cb:SetChecked(true)
 			end
 		end)
-		f.diffCBs[i] = rb
+		if i == 1 then
+			cb:SetPoint("TOPLEFT", raidCB, "BOTTOMLEFT", 0, -2)
+		else
+			cb:SetPoint("LEFT", f.diffCBs[i - 1].label, "RIGHT", 10, 0)
+		end
+		cb.word = d.word
+		f.diffCBs[i] = cb
 	end
 
 	f.roleCBs = {}
@@ -472,13 +490,10 @@ local function CreateUI()
 	local function selectSection(dungeons)
 		raidCB:SetChecked(not dungeons)
 		dungeonCB:SetChecked(dungeons)
-		local anyDiff = false
-		for _, rb in ipairs(f.diffCBs) do
-			rb:SetShown(not dungeons)
-			rb.label:SetShown(not dungeons)
-			anyDiff = anyDiff or rb:GetChecked()
+		for _, cb in ipairs(f.diffCBs) do
+			cb:SetShown(not dungeons)
 		end
-		if not dungeons and not anyDiff then
+		if not dungeons and not anyDiffChecked() then
 			f.diffCBs[DEFAULT_DIFF]:SetChecked(true)
 		end
 		f.roleAnchor:ClearAllPoints()
@@ -504,10 +519,16 @@ local function CreateUI()
 		if dungeonCB:GetChecked() then
 			input = input .. " +dungeon"
 		else
+			-- several difficulties are one either/or word, not several words:
+			-- rule words are ANDed, and no listing is Normal and Heroic at once
+			local diffs = {}
 			for _, cb in ipairs(f.diffCBs) do
 				if cb:GetChecked() then
-					input = input .. " " .. cb.word
+					diffs[#diffs + 1] = cb.word
 				end
+			end
+			if #diffs > 0 then
+				input = input .. " " .. table.concat(diffs, "|")
 			end
 		end
 		for _, role in ipairs(ROLE_ORDER) do

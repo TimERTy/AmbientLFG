@@ -149,6 +149,34 @@ function Match.matchableText(text)
 	return text:find("^|K") and "" or text
 end
 
+-- A rule word may offer alternatives, written "normal|heroic": the difficulty
+-- picker allows several, and rule words are ANDed, so requiring both would
+-- match nothing. Lua patterns have no alternation, so each is tried in turn.
+local altCache = {}
+function Match.wordAlternatives(word)
+	local alts = altCache[word]
+	if not alts then
+		alts = {}
+		for part in word:gmatch("[^|]+") do
+			alts[#alts + 1] = part
+		end
+		if #alts == 0 then
+			alts[1] = word
+		end
+		altCache[word] = alts
+	end
+	return alts
+end
+
+function Match.wordMatches(haystack, word)
+	for _, alt in ipairs(Match.wordAlternatives(word)) do
+		if haystack:find(Match.fuzzyPattern(alt)) then
+			return true
+		end
+	end
+	return false
+end
+
 -- Does any ignore word appear in the haystack? Also matches with all
 -- separators stripped, so "W T S" / "W.T.S" hit "wts".
 function Match.matchesIgnoreWord(haystack, ignores)

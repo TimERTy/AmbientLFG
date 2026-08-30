@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.6
+- Difficulty is checkboxes again — several can apply. Picking Normal and Heroic now means either, not both at once, which matched nothing. Raids still require at least one.
+- Clicking a checkbox's label toggles it, instead of only the box itself.
+- New `/alfg diag` records what the addon actually received for the listings on screen — whether each title and comment arrived as readable text or an unreadable token, and the text each rule was matched against. Run it after a search, then `/reload` to write it out.
+
 ## 0.3.5
 - Fix: `/alfg add +18` was rejected as an unknown tag, so the keystone filtering 0.3.4 added could not actually be typed the way the docs described it. `+18` and `18` now mean the same thing, and a key matches whether or not the group typed the plus.
 - Fix: a rule with no `+raid` or `+dungeon` searched raids only, so a keystone rule alerted on nothing while reporting listings scanned. Untagged rules now search both sections, which is what they already matched against.
