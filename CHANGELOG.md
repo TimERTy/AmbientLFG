@@ -11,6 +11,9 @@ The reason is that rule words could never do this job. Since 12.0 a listing's ti
 - The window names the search it is watching, so the filter that decides everything is never invisible state.
 - Auto-search does nothing until you have run a search yourself, and says so, instead of quietly inventing one that approximated the panel's filters and could not carry the search box at all.
 - `/alfg roles tank dps` (or `any`) replaces `/alfg add`, `del` and `clear`.
+- The groups already listed when watching starts no longer alert. A login, a `/reload`, or changing your search used to fire on every listing the search returned at once; those are the board as you'd see it, not news, so alerting begins with the next group to appear. `/alfg reset` still makes them all alert again.
+- Changing your search clears the matches list immediately instead of leaving the previous search's groups sitting in it until they aged out.
+- The window is titled "AmbientLFG" rather than "Premade Alert".
 - Fix: the roles on a rule were required all at once. Ticking Tank, Healer and DPS asked for a group with every role still open — an empty group — so it matched nothing and looked simply broken.
 - Clicking a checkbox's label toggles it, instead of only the box itself.
 - A queued background search now also fires on a keypress, not only on a click in the world. WoW requires a hardware event to run the search, and if you move with the keyboard you could go a long stretch without clicking anything while searches waited.

@@ -35,6 +35,14 @@ local activityNameCache = {}
 local stats = { autoIssued = 0 }
 local matches = {} -- currently-listed groups matching a rule, for the UI
 local lastSearch -- captured args from the most recent C_LFGList.Search call
+-- A group already on the board when watching starts is not news. Without this
+-- a login, a /reload, or a change of search alerts on every listing the search
+-- returns at once. Those listings are recorded by resultID, not by leader,
+-- because a listing's details stream in over the following seconds: keying on
+-- anything that needs details would prime nothing and alert on all of it.
+local primed = false
+local primedFor
+local preexisting = {}
 
 local function msg(text)
 	print("|cff33ff99AmbientLFG|r: " .. text)
@@ -390,6 +398,9 @@ local function scanOne(resultID)
 		healers = counts and safeNum(counts.HEALER),
 		dps = counts and safeNum(counts.DAMAGER),
 	}
+	if preexisting[resultID] then
+		return
+	end
 	if not alerted[key] and not pendingConfirm[key] then
 		pendingConfirm[key] = { resultID = resultID, tries = 0 }
 		if db.debug then
@@ -479,6 +490,13 @@ local function scanResults()
 	stats.lastResultCount = #results
 	if not db.enabled then
 		return
+	end
+	if not primed then
+		primed = true
+		wipe(preexisting)
+		for _, id in ipairs(results) do
+			preexisting[id] = true
+		end
 	end
 	startScan(results, true)
 end
@@ -644,9 +662,52 @@ local function sanitizeValue(v, depth)
 	return nil
 end
 
+-- Two things depend on noticing that the watched search CHANGED, as opposed to
+-- being re-run: the groups the old search found are no longer matches and must
+-- leave the list at once rather than aging out, and the new search's first
+-- results are a board the player has not seen, so they prime instead of
+-- alerting. The addon's own replays produce an identical signature and so are
+-- correctly not treated as a change.
+local function searchSignature(args)
+	local parts = {}
+	local function add(v, depth)
+		if issecretvalue and issecretvalue(v) then
+			return
+		end
+		local t = type(v)
+		if t == "table" and depth < 4 then
+			local keys = {}
+			for k in pairs(v) do
+				if type(k) == "string" or type(k) == "number" then
+					keys[#keys + 1] = k
+				end
+			end
+			table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+			for _, k in ipairs(keys) do
+				parts[#parts + 1] = tostring(k)
+				add(v[k], depth + 1)
+			end
+		elseif t == "number" or t == "boolean" or t == "string" then
+			parts[#parts + 1] = tostring(v)
+		end
+	end
+	for i = 1, args.n do
+		add(args[i], 0)
+	end
+	parts[#parts + 1] = searchBoxText()
+	return table.concat(parts, "\1")
+end
+
 hooksecurefunc(C_LFGList, "Search", function(...)
 	lastSearch = { n = select("#", ...), ... }
 	stats.lastAnySearchAt = GetTime()
+	local sig = searchSignature(lastSearch)
+	if sig ~= primedFor then
+		primedFor = sig
+		primed = false
+		wipe(matches)
+		wipe(pendingConfirm)
+	end
 	if db then
 		db.lastSearch = sanitizeValue(lastSearch, 0)
 	end
@@ -878,6 +939,7 @@ SlashCmdList.AMBIENTLFG = function(input)
 		msg("chat log " .. (db.debug and "on" or "off"))
 	elseif cmd == "reset" then
 		wipe(alerted)
+		wipe(preexisting)
 		msg("alert history cleared — already-seen groups will alert again")
 	elseif cmd == "diag" then
 		diag()
@@ -900,7 +962,7 @@ ns.GetStats = function() return stats end
 ns.GetSearchBoxText = searchBoxText
 ns.GetMatches = function() return matches end
 ns.BlockLeader = blockLeader
-ns.ResetAlerted = function() wipe(alerted) end
+ns.ResetAlerted = function() wipe(alerted); wipe(preexisting) end
 ns.TestAlert = function()
 	alertMatches({ { name = "Test Group", leader = "Testleader", activity = "Mythic+ (M+)" } })
 end

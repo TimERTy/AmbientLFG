@@ -232,7 +232,7 @@ local function CreateUI()
 
 	local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	title:SetPoint("TOPLEFT", f, "TOPLEFT", PADDING, -PADDING)
-	title:SetText("Premade Alert")
+	title:SetText("AmbientLFG")
 	title:SetTextColor(1, 0.84, 0)
 
 	local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")

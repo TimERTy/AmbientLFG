@@ -3,7 +3,7 @@
 ## IconTexture: Interface\Icons\INV_Misc_Bell_01
 ## Author: ptarjan
 ## Version: 0.4.0
-## Notes: Alerts you when a Group Finder listing matching your keywords appears, so you can click to sign up.
+## Notes: Replays the Group Finder search you ran and alerts you when a group with a seat you can fill appears.
 ## SavedVariables: AmbientLFGDB
 ## X-Curse-Project-ID: 1607618
 
