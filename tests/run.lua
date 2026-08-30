@@ -149,6 +149,33 @@ describe("shortName", function()
     end)
 end)
 
+describe("stateLines", function()
+    local function lines(over)
+        local s = { enabled = true, armed = true, interval = 10 }
+        for k, v in pairs(over or {}) do s[k] = v end
+        return select(2, M.stateLines(s))
+    end
+    it("never leaves the empty list saying nothing is wrong when something is", function()
+        -- the whole point: an empty list is when the player needs telling
+        ok(lines({ enabled = false }):find("tick", 1, true), "off says how to turn it on")
+        ok(lines({ armed = false }):find("Group Finder", 1, true), "idle says where to search")
+        ok(lines({ listed = "your group is listed" }):find("listing", 1, true), "listed says why")
+        ok(lines({ browsing = true }):find("close the Group Finder", 1, true), "browsing says why")
+        ok(lines({ suspended = true }):find("retry", 1, true), "suspended says how to retry")
+    end)
+    it("tells a working addon's user there is nothing to do", function()
+        ok(lines():find("Nothing to do", 1, true), "watching")
+    end)
+    it("answers before arming when the player's own group is listed", function()
+        -- "search once to arm it" cannot be followed from the applicants view
+        ok(lines({ armed = false, listed = "x" }):find("listing", 1, true), "order")
+    end)
+    it("keeps the status line and the empty line describing one state", function()
+        local status = M.stateLines({ enabled = false })
+        ok(status:find("Off", 1, true), "status names the state")
+    end)
+end)
+
 describe("alertLine", function()
     it("names the group by the title it typed", function()
         eq(M.alertLine("LF1M tank", "Manaforge Omega (Heroic)", "Lurra-Stormrage"),

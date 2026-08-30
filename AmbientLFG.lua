@@ -34,6 +34,7 @@ local stats = { autoIssued = 0 }
 local matches = {} -- currently-listed groups matching a rule, for the UI
 local lastSearch -- captured args from the most recent C_LFGList.Search call
 local boxText = "" -- the search box as of the last search the player ran
+local boxCategory -- the section that box belongs to, read the same way
 -- A group already on the board when watching starts is not news. Without this
 -- a login, a /reload, or a change of search alerts on every listing the search
 -- returns at once. Those listings are recorded by resultID, not by leader,
@@ -566,6 +567,8 @@ local function rememberBoxText()
 	local panel = LFGListFrame and LFGListFrame.SearchPanel
 	if panel and panel:IsVisible() then
 		boxText = searchBoxText()
+		-- the field Blizzard's own search panel hands to C_LFGList.Search
+		boxCategory = safeNum(panel.categoryID)
 	end
 	return boxText
 end
@@ -574,8 +577,18 @@ end
 -- would alert on the whole board and keep alerting as the board churns, which
 -- is indistinguishable from the addon being broken. So an empty box counts as
 -- no search at all: nothing is watched until the player types one.
+--
+-- Switching the Group Finder to another section disarms it the same way, and for
+-- the same reason: the panel on screen is a different search from the captured
+-- one, so the window would go on naming a search — and offering the raid-only
+-- role boxes for it — that the player has navigated away from. Only a section
+-- positively read as a different one counts; an unreadable panel changes
+-- nothing, so a Blizzard rename cannot silently switch the addon off.
 local function armed()
-	return lastSearch ~= nil and rememberBoxText() ~= ""
+	if lastSearch == nil or rememberBoxText() == "" then
+		return false
+	end
+	return boxCategory == nil or boxCategory == lastSearch[1]
 end
 
 local function scanResults()
@@ -903,11 +916,15 @@ local function watchedSearch()
 	return searchDescription(lastSearch[1], boxText)
 end
 
--- Which section the watched search is in, or nil when there has been no search.
+-- Which section the watched search is in, or nil when nothing is being watched.
 -- The window hangs a raid-only control off this, so everyone asks the one
 -- question rather than keeping a boolean each and letting them disagree.
+--
+-- Armed, not merely "there was a search once": a raid-only control still on
+-- screen after the player has left the Raids section claims to narrow a search
+-- that is no longer being watched.
 local function watchedCategory()
-	return lastSearch and lastSearch[1] or nil
+	return armed() and lastSearch[1] or nil
 end
 
 -- Nil outside a raid search; otherwise what the box does or does not narrow to.

@@ -248,28 +248,19 @@ Refresh = function()
 	if stats.autoIssued > 0 then
 		heartbeat = heartbeat .. (" | %d auto-searches"):format(stats.autoIssued)
 	end
-	local listed = ns.CannotSearchReason()
-	if not db.enabled then
-		ui.statusText:SetText("|cffff6666Off|r" .. heartbeat)
-	elseif listed then
-		-- a live listing stops watching whether or not a search was ever armed,
-		-- so it answers before "search once to arm it", which cannot be done
-		ui.statusText:SetText(("|cffffcc00Paused — %s|r"):format(listed) .. heartbeat)
-	elseif not ns.IsArmed() then
-		ui.statusText:SetText("|cffffcc00Idle — fill in the Group Finder's search box and search once to arm it|r" .. heartbeat)
-	elseif stats.browsing then
-		-- silence here reads as the addon being broken; it is deliberate
-		ui.statusText:SetText("|cffffcc00Paused while the Group Finder is open|r — searching now would stomp the results you're looking at" .. heartbeat)
-	elseif stats.suspended then
-		ui.statusText:SetText("|cffff6666Suspended — searches keep failing (Group Finder not usable right now?). Untick and retick to retry.|r" .. heartbeat)
-	elseif stats.backoffUntil and GetTime() < stats.backoffUntil then
-		ui.statusText:SetText(("|cffff9933Search throttled — pausing %ds|r"):format(
-			math.ceil(stats.backoffUntil - GetTime())) .. heartbeat)
-	elseif stats.pending then
-		ui.statusText:SetText("|cff66ff66Search queued — fires on your next click in the world|r" .. heartbeat)
-	else
-		ui.statusText:SetText(("|cff66ff66Watching — searches every %ds, on your next click|r"):format(db.interval) .. heartbeat)
-	end
+	local status, empty = ns.Match.stateLines({
+		enabled = db.enabled,
+		listed = ns.CannotSearchReason(),
+		armed = ns.IsArmed(),
+		browsing = stats.browsing,
+		suspended = stats.suspended,
+		throttled = stats.backoffUntil and GetTime() < stats.backoffUntil
+			and math.ceil(stats.backoffUntil - GetTime()) or nil,
+		pending = stats.pending,
+		interval = db.interval,
+	})
+	ui.statusText:SetText(status .. heartbeat)
+	ui.emptyText:SetText(empty)
 end
 
 local function CreateUI()
@@ -466,8 +457,13 @@ local function CreateUI()
 	scrollFrame:SetScrollChild(scrollChild)
 	f.scrollChild = scrollChild
 
+	-- An empty list is when someone needs telling what to do, so the line says
+	-- it; Refresh picks the wording from the same state the status line uses.
 	f.emptyText = listBg:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	f.emptyText:SetPoint("CENTER")
+	f.emptyText:SetWidth(FRAME_WIDTH - PADDING * 2 - 40)
+	f.emptyText:SetJustifyH("CENTER")
+	f.emptyText:SetSpacing(2)
 	f.emptyText:SetText("No matching groups right now")
 	f.emptyText:SetTextColor(0.5, 0.5, 0.5)
 

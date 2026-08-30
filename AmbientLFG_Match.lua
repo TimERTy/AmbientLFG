@@ -321,4 +321,42 @@ function Match.listedBlockText(isLeader)
 	return why .. " — the Group Finder shows applicants instead of the search"
 end
 
+-- The window says two things about one state: a status line naming what the
+-- addon is doing, and — when the list is empty — the move that fills it. They
+-- are decided in one pass so they cannot disagree; an empty list reading "no
+-- matching groups right now" while the addon is switched off answers a question
+-- nobody asked, and an empty list is exactly when someone needs telling.
+--
+-- Fields: enabled, listed (the block text, or nil), armed, browsing, suspended,
+-- throttled (seconds left, or nil), pending, interval.
+function Match.stateLines(s)
+	if not s.enabled then
+		return "|cffff6666Off|r",
+			"Switched off — tick |cffffd100Enabled|r above and matches will start arriving"
+	elseif s.listed then
+		-- a live listing stops watching whether or not a search was ever armed,
+		-- so it answers before "search once to arm it", which cannot be done
+		return ("|cffffcc00Paused — %s|r"):format(s.listed),
+			"Paused while your own group is listed — take the listing down to start watching again"
+	elseif not s.armed then
+		return "|cffffcc00Idle — fill in the Group Finder's search box and search once to arm it|r",
+			"Nothing is being watched yet — open the Group Finder, type what you are after in the search box, and search once. The addon then replays that search for you."
+	elseif s.browsing then
+		-- silence here reads as the addon being broken; it is deliberate
+		return "|cffffcc00Paused while the Group Finder is open|r — searching now would stomp the results you're looking at",
+			"Nothing here while you are browsing — close the Group Finder and matches will start arriving"
+	elseif s.suspended then
+		return "|cffff6666Suspended — searches keep failing (Group Finder not usable right now?). Untick and retick to retry.|r",
+			"Searches are failing — untick |cffffd100Enabled|r and tick it again to retry"
+	elseif s.throttled then
+		return ("|cffff9933Search throttled — pausing %ds|r"):format(s.throttled),
+			"No matching groups right now — the next search is waiting out the game's throttle"
+	elseif s.pending then
+		return "|cff66ff66Search queued — fires on your next click in the world|r",
+			"No matching groups right now — the next search fires on your next click or keypress"
+	end
+	return ("|cff66ff66Watching — searches every %ds, on your next click|r"):format(s.interval),
+		"No matching groups right now — one appears here the moment it is listed. Nothing to do but play; you will get a banner."
+end
+
 return Match
