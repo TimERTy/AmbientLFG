@@ -512,20 +512,22 @@ local function searchBoxText()
 	return box and safeStr(box:GetText()) or ""
 end
 
--- The filter itself is engine state and keeps applying to background searches,
--- but the editbox is only readable while the panel is up: with the Group Finder
--- closed it reads empty. So the text is remembered from the last search the
--- player ran themselves, and a reading taken while the panel is down is not
--- allowed to overwrite it — otherwise the addon's own replays would report an
--- empty box and disarm it.
+-- The box is the filter, and the engine reads it off Blizzard's own editbox at
+-- search time rather than taking it as an argument — so the widget IS the
+-- state. It is readable only while the panel is up; with the Group Finder shut
+-- it reads empty, which is not the same as the filter being empty. So the box
+-- is re-read every time it can be, and a reading taken with the panel down is
+-- not allowed to overwrite it.
+--
+-- Re-read rather than captured once: the player can clear the box, or switch
+-- tabs, without running a search, and a remembered string would then name a
+-- filter the engine no longer has.
 local function rememberBoxText()
 	local panel = LFGListFrame and LFGListFrame.SearchPanel
 	if panel and panel:IsVisible() then
 		boxText = searchBoxText()
-		if db then
-			db.boxText = boxText
-		end
 	end
+	return boxText
 end
 
 -- An empty search box is not a filter, it is every group in the category. It
@@ -533,7 +535,7 @@ end
 -- is indistinguishable from the addon being broken. So an empty box counts as
 -- no search at all: nothing is watched until the player types one.
 local function armed()
-	return lastSearch ~= nil and boxText ~= ""
+	return lastSearch ~= nil and rememberBoxText() ~= ""
 end
 
 local function scanResults()
@@ -612,7 +614,6 @@ local function issueSearch()
 	stats.lastAutoAt = GetTime()
 	if not pcall(C_LFGList.Search, unpack(lastSearch, 1, lastSearch.n)) then
 		lastSearch = nil
-		db.lastSearch = nil
 		msg("searching failed — open the Group Finder and search once to re-arm")
 	end
 end
@@ -697,31 +698,6 @@ local function restartTicker()
 	end
 end
 
--- search args are plain data (numbers/booleans/tables); persisting them lets
--- auto-search re-arm at login instead of needing a manual search per session
-local function sanitizeValue(v, depth)
-	if issecretvalue and issecretvalue(v) then
-		return nil
-	end
-	local t = type(v)
-	if t == "number" or t == "boolean" or t == "string" then
-		return v
-	end
-	if t == "table" and depth < 4 then
-		local out = {}
-		for k, val in pairs(v) do
-			if type(k) == "string" or type(k) == "number" then
-				local sv = sanitizeValue(val, depth + 1)
-				if sv ~= nil then
-					out[k] = sv
-				end
-			end
-		end
-		return out
-	end
-	return nil
-end
-
 -- Two things depend on noticing that the watched search CHANGED, as opposed to
 -- being re-run: the groups the old search found are no longer matches and must
 -- leave the list at once rather than aging out, and the new search's first
@@ -770,9 +746,6 @@ hooksecurefunc(C_LFGList, "Search", function(...)
 		wipe(pendingConfirm)
 		wipe(currentSet)
 	end
-	if db then
-		db.lastSearch = sanitizeValue(lastSearch, 0)
-	end
 end)
 
 
@@ -818,10 +791,14 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 			db.rules = nil
 			msg("rules have been replaced by the search you run yourself — open the Group Finder, set up the search you want, run it once, and /alfg watches it.")
 		end
-		boxText = type(db.boxText) == "string" and db.boxText or ""
-		if type(db.lastSearch) == "table" and type(db.lastSearch.n) == "number" then
-			lastSearch = db.lastSearch
-		end
+		-- A reload cannot carry the watched search with it. The search box is
+		-- not an argument to the search — the engine reads Blizzard's editbox
+		-- as it runs — and a reload builds that box empty. A restored search
+		-- therefore replays with no filter at all, which is every group in the
+		-- category, while still naming the filter it no longer has. So a reload
+		-- disarms: run your search once and it is watched again.
+		db.boxText = nil
+		db.lastSearch = nil
 		restartTicker()
 	elseif event == "LFG_LIST_SEARCH_FAILED" then
 		-- back off exponentially on repeated failures (throttle, or the
