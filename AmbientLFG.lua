@@ -403,6 +403,24 @@ scheduleConfirm = function()
 	end
 end
 
+-- The names in the player's own group, and only while a listing of theirs is
+-- up: with nothing listed no search result can be their own group. This is the
+-- fallback for recognising that listing when its own hasSelf flag is
+-- unreadable, so nil is the ordinary answer and costs one call.
+local ownNames = {}
+local function ownGroupNames()
+	if not (C_LFGList.HasActiveEntryInfo and C_LFGList.HasActiveEntryInfo()) then
+		return nil
+	end
+	wipe(ownNames)
+	ownNames[1] = safeStr(UnitName("player"))
+	local prefix = IsInRaid() and "raid" or "party"
+	for i = 1, GetNumGroupMembers() do
+		ownNames[#ownNames + 1] = safeStr(UnitName(prefix .. i))
+	end
+	return ownNames
+end
+
 local function scanOne(resultID)
 	if not db or not db.enabled then
 		return
@@ -423,6 +441,9 @@ local function scanOne(resultID)
 	if not ready then
 		return
 	end
+	if Match.isOwnListing(info.hasSelf, leader, ownGroupNames()) then
+		return
+	end
 	local haystack, categoryID, maxPlayers, comment, actDisplay = listingHaystack(info, name, leader)
 	recordAdToken(comment, leader)
 	if not rolesOpen(resultID, info, categoryID, maxPlayers) then
@@ -436,7 +457,7 @@ local function scanOne(resultID)
 	-- leaderName can stream as "Name" first and "Name-Realm" later; key on the
 	-- realm-stripped name so the same group can't re-alert when the format
 	-- flips. One group is one entry now that there is nothing else to key on.
-	local key = leader:match("^([^%-]+)") or leader
+	local key = Match.shortName(leader)
 	local counts = C_LFGList.GetSearchResultMemberCounts(resultID)
 	matches[key] = {
 		name = name ~= "" and name or leader,
@@ -646,6 +667,17 @@ local function playerIsBrowsing()
 	return LFGListFrame and LFGListFrame:IsVisible()
 end
 
+-- Nil unless the player's own group is listed, in which case it says so. A live
+-- listing stops background searching outright: the Group Finder is showing
+-- applicants rather than the search panel, and a player whose group is already
+-- recruiting is not looking for a group to join.
+local function cannotSearch()
+	if not (C_LFGList.HasActiveEntryInfo and C_LFGList.HasActiveEntryInfo()) then
+		return nil
+	end
+	return Match.listedBlockText(UnitIsGroupLeader and UnitIsGroupLeader("player") or false)
+end
+
 -- 12.0: C_LFGList.Search is hardware-event protected — calling it from a
 -- timer gets ADDON_ACTION_BLOCKED (confirmed via BugGrabber 2026-07-11).
 -- The ticker only queues; the search fires from the player's next hardware
@@ -676,7 +708,7 @@ local function autoSearch()
 		return
 	end
 	stats.browsing = playerIsBrowsing() or nil
-	if suspended or GetTime() < backoffUntil or stats.browsing then
+	if suspended or GetTime() < backoffUntil or stats.browsing or cannotSearch() then
 		return
 	end
 	-- the Group Finder isn't usable in battlegrounds/arenas; searching
@@ -695,6 +727,7 @@ function firePendingSearch()
 		and not suspended
 		and GetTime() >= backoffUntil
 		and not playerIsBrowsing()
+		and not cannotSearch()
 		and GetTime() - (stats.lastAnySearchAt or 0) >= 5 then
 		setPending(false)
 		issueSearch()
@@ -867,23 +900,14 @@ local function raidDifficulty()
 	return Match.raidDifficultyHint(lastSearch[1], boxText)
 end
 
--- Nil unless the game is currently refusing to show the search panel.
-local function cannotSearch()
-	if not (C_LFGList.HasActiveEntryInfo and C_LFGList.HasActiveEntryInfo()) then
-		return nil
-	end
-	return Match.listedBlockText(UnitIsGroupLeader and UnitIsGroupLeader("player") or false)
-end
-
 local function status()
 	msg(("v%s | %s (searching every %ds)"):format(
 		(C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)(ADDON_NAME, "Version") or "?",
 		db.enabled and "on" or "off",
 		db.interval))
 	local watching = watchedSearch()
-	msg(watching
-		and ("watching: %s"):format(watching)
-		or cannotSearch()
+	msg(cannotSearch()
+		or (watching and ("watching: %s"):format(watching))
 		or "nothing to watch — open the Group Finder, set up the search you want, and run it once")
 	msg("alerting when there is an open seat for: " .. rolesToString(wantedRoles())
 		.. (ns.WatchingDungeons() and " (set in the Group Finder's Filter)"
@@ -949,7 +973,8 @@ local function diag()
 				roles = ("n%d T%d H%d D%d"):format(safeNum(info.numMembers),
 					safeNum(counts.TANK), safeNum(counts.HEALER), safeNum(counts.DAMAGER))
 			end
-			local verdict = blockedReason(haystack, leader, comment)
+			local verdict = Match.isOwnListing(info.hasSelf, leader, ownGroupNames()) and "your own listing"
+				or blockedReason(haystack, leader, comment)
 			if not verdict and not rolesOpen(resultID, info, categoryID, maxPlayers) then
 				verdict = "no open seat for " .. rolesToString(wantedRoles())
 			end

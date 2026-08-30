@@ -43,6 +43,36 @@ function Match.safeNum(v)
 	return v
 end
 
+-- The same character arrives as "Name" and as "Name-Realm" depending on when
+-- the field streamed in, so a name is keyed and compared on its realm-stripped
+-- form.
+function Match.shortName(name)
+	local s = Match.safeStr(name)
+	return s:match("^([^%-]+)") or s
+end
+
+-- Your own group's listing comes back in your own search results. It is not a
+-- group to join, so it never alerts and never sits in the matches list. A
+-- listing reports hasSelf, which is exactly this question; when that flag is
+-- unreadable the listing is recognised by its leader being someone in your own
+-- group. ownNames is nil unless a listing of yours is actually up, so with
+-- nothing listed the name check cannot fire.
+function Match.isOwnListing(hasSelf, leaderName, ownNames)
+	if Match.safeBool(hasSelf) then
+		return true
+	end
+	local leader = Match.shortName(leaderName):lower()
+	if leader == "" then
+		return false
+	end
+	for _, name in ipairs(ownNames or {}) do
+		if Match.shortName(name):lower() == leader then
+			return true
+		end
+	end
+	return false
+end
+
 -- "lura" -> "l+u+r+a+" so doubled/stretched spellings (Lurra, Luraa) still
 -- hit. Compiled once per word — this runs for every word × every listing.
 -- Digits are fenced instead of stretched: a number means a quantity, so "+18"
@@ -262,16 +292,18 @@ function Match.raidDifficultyHint(categoryID, boxText)
 	return "every difficulty — type \"(heroic\" or \"(mythic\" in the box and pick the entry it offers", false
 end
 
--- While your own listing is up the Group Finder shows your applicants and the
--- search panel is unreachable, so "run a search once to arm it" is advice that
--- cannot be followed and reads as the addon being broken. The game puts a
--- Browse Groups button in that view for a party leader and for nobody else, so
--- everyone else has to take the listing down first.
+-- While your own listing is up, background watching stands down: a group that
+-- is already recruiting for you is not one to be alerted about, and the Group
+-- Finder shows your applicants instead of the search panel, so "run a search
+-- once to arm it" is advice that cannot be followed and reads as the addon
+-- being broken. The game puts a Browse Groups button in that view for a party
+-- leader and for nobody else.
 function Match.listedBlockText(isLeader)
+	local why = "your group is listed, so watching is paused until the listing is taken down"
 	if isLeader then
-		return "your group is listed, so the Group Finder opens on your applicants — click \"Browse Groups\" there to reach the search"
+		return why .. " — the Group Finder opens on your applicants, and \"Browse Groups\" there reaches the search"
 	end
-	return "your listing is up, so the Group Finder shows applicants instead of the search — it comes back when the listing is taken down"
+	return why .. " — the Group Finder shows applicants instead of the search"
 end
 
 return Match

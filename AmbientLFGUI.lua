@@ -205,7 +205,7 @@ Refresh = function()
 		-- the leader leads the row because it is the only part guaranteed to be
 		-- real text; a title token the client has not resolved yet draws as
 		-- "Unknown", and a row that says only that identifies nothing
-		local who = m.leader and (m.leader:match("^([^%-]+)") or m.leader) or ""
+		local who = ns.Match.shortName(m.leader)
 		local title = (m.name and m.name ~= m.leader) and (" " .. m.name) or ""
 		row.text:SetText(("%s  %s|cff9999ff%s|r%s"):format(comp, activity, who, title))
 		row.block.matchLeader = m.leader
@@ -230,15 +230,15 @@ Refresh = function()
 	if stats.autoIssued > 0 then
 		heartbeat = heartbeat .. (" | %d auto-searches"):format(stats.autoIssued)
 	end
+	local listed = ns.CannotSearchReason()
 	if not db.enabled then
 		ui.statusText:SetText("|cffff6666Off|r" .. heartbeat)
+	elseif listed then
+		-- a live listing stops watching whether or not a search was ever armed,
+		-- so it answers before "search once to arm it", which cannot be done
+		ui.statusText:SetText(("|cffffcc00Paused — %s|r"):format(listed) .. heartbeat)
 	elseif not ns.IsArmed() then
-		-- with a listing up the search panel is unreachable, so the usual
-		-- "search once to arm it" is an instruction that cannot be carried out
-		local blocked = ns.CannotSearchReason()
-		ui.statusText:SetText(blocked
-			and ("|cffffcc00Idle — %s|r"):format(blocked) .. heartbeat
-			or "|cffffcc00Idle — fill in the Group Finder's search box and search once to arm it|r" .. heartbeat)
+		ui.statusText:SetText("|cffffcc00Idle — fill in the Group Finder's search box and search once to arm it|r" .. heartbeat)
 	elseif stats.browsing then
 		-- silence here reads as the addon being broken; it is deliberate
 		ui.statusText:SetText("|cffffcc00Paused while the Group Finder is open|r — searching now would stomp the results you're looking at" .. heartbeat)
