@@ -3,6 +3,9 @@
 ## 0.3.6
 - Difficulty is checkboxes again — several can apply. Picking Normal and Heroic now means either, not both at once, which matched nothing. Raids still require at least one.
 - Clicking a checkbox's label toggles it, instead of only the box itself.
+- Switching to Dungeons no longer shifts the rest of the form up; the difficulty row keeps its place and says why there is nothing to pick.
+- Radio buttons and checkboxes are the same size, so adjacent rows line up.
+- Ignore words moved below the rule form — they apply to every rule, not to the one being typed.
 - New `/alfg diag` records what the addon actually received for the listings on screen — whether each title and comment arrived as readable text or an unreadable token, and the text each rule was matched against. Run it after a search, then `/reload` to write it out.
 
 ## 0.3.5

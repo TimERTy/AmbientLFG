@@ -30,9 +30,26 @@ local function attachLabel(cb, label)
 	return cb
 end
 
+-- Checkboxes and radio buttons ship at different sizes, which left the two
+-- kinds sitting at different heights on adjacent rows. Both are forced to one
+-- size; the radio template sizes its textures explicitly, so they have to be
+-- re-anchored to follow the button.
+local CONTROL_SIZE = 24
+
+local function sizeControl(cb)
+	cb:SetSize(CONTROL_SIZE, CONTROL_SIZE)
+	for _, get in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture", "GetCheckedTexture", "GetDisabledTexture" }) do
+		local tex = cb[get] and cb[get](cb)
+		if tex then
+			tex:ClearAllPoints()
+			tex:SetAllPoints(cb)
+		end
+	end
+	return cb
+end
+
 local function MakeCheckbox(parent, label, onClick)
-	local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-	cb:SetSize(24, 24)
+	local cb = sizeControl(CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate"))
 	cb:SetScript("OnClick", function(self)
 		onClick(self:GetChecked() and true or false)
 	end)
@@ -43,7 +60,7 @@ end
 -- that several can be ticked at once. Exclusivity differs per group, so the
 -- caller wires OnClick.
 local function MakeRadio(parent, label)
-	return attachLabel(CreateFrame("CheckButton", nil, parent, "UIRadioButtonTemplate"), label)
+	return attachLabel(sizeControl(CreateFrame("CheckButton", nil, parent, "UIRadioButtonTemplate")), label)
 end
 
 local function MakeButton(parent, label, width, onClick)
@@ -390,32 +407,9 @@ local function CreateUI()
 	f.emptyText:SetText("No rules yet — add one below, e.g. \"mythic nerub\" + Tank")
 	f.emptyText:SetTextColor(0.5, 0.5, 0.5)
 
-	-- Ignore words
-	local ignoreLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	ignoreLabel:SetPoint("TOPLEFT", listBg, "BOTTOMLEFT", 0, -10)
-	ignoreLabel:SetText("Ignore:")
-	ignoreLabel:SetTextColor(0.7, 0.7, 0.7)
-
-	f.ignoreBox = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-	f.ignoreBox:SetHeight(20)
-	f.ignoreBox:SetPoint("LEFT", ignoreLabel, "RIGHT", 10, 0)
-	f.ignoreBox:SetPoint("RIGHT", f, "RIGHT", -PADDING, 0)
-	f.ignoreBox:SetAutoFocus(false)
-	local function commitIgnores(self)
-		local words = {}
-		for word in (self:GetText() or ""):gmatch("[^,%s]+") do
-			words[#words + 1] = word:lower()
-		end
-		getDb().ignores = words
-		Refresh()
-	end
-	f.ignoreBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-	f.ignoreBox:SetScript("OnEditFocusLost", commitIgnores)
-	f.ignoreBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-
 	-- Add-rule area
 	local addHeader = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	addHeader:SetPoint("TOPLEFT", ignoreLabel, "BOTTOMLEFT", 0, -12)
+	addHeader:SetPoint("TOPLEFT", listBg, "BOTTOMLEFT", 0, -10)
 	addHeader:SetText("New rule — ALL its words must match, plus open roles")
 	addHeader:SetTextColor(0.7, 0.7, 0.7)
 
@@ -485,19 +479,23 @@ local function CreateUI()
 		f.roleAnchor = f.roleAnchor or cb
 	end
 
-	-- Hiding the difficulty row would leave a hole above the roles, so the
-	-- role row re-anchors to whichever row is last showing.
+	-- Re-anchoring the rows below the difficulty row made the whole form jump
+	-- when the section changed. The row keeps its space and states what a
+	-- dungeon rule matches instead.
+	f.diffNote = f:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+	f.diffNote:SetPoint("LEFT", f.diffCBs[1], "LEFT", 4, 0)
+	f.diffNote:SetText("Keystones — no difficulty to pick")
+
 	local function selectSection(dungeons)
 		raidCB:SetChecked(not dungeons)
 		dungeonCB:SetChecked(dungeons)
 		for _, cb in ipairs(f.diffCBs) do
 			cb:SetShown(not dungeons)
 		end
+		f.diffNote:SetShown(dungeons)
 		if not dungeons and not anyDiffChecked() then
 			f.diffCBs[DEFAULT_DIFF]:SetChecked(true)
 		end
-		f.roleAnchor:ClearAllPoints()
-		f.roleAnchor:SetPoint("TOPLEFT", dungeons and raidCB or f.diffCBs[1], "BOTTOMLEFT", 0, -2)
 	end
 	raidCB:SetScript("OnClick", function() selectSection(false) end)
 	dungeonCB:SetScript("OnClick", function() selectSection(true) end)
@@ -557,6 +555,31 @@ local function CreateUI()
 	f.addButton:SetPoint("RIGHT", f, "RIGHT", -PADDING, 0)
 	f.addBox:SetScript("OnEnterPressed", addRule)
 	f.addBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+	-- Ignore words sit below the rule form: they qualify every rule rather
+	-- than belonging to the one being typed, and splitting the form in half
+	-- read as if they did.
+	local ignoreLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	ignoreLabel:SetPoint("TOPLEFT", f.roleAnchor, "BOTTOMLEFT", 0, -12)
+	ignoreLabel:SetText("Ignore:")
+	ignoreLabel:SetTextColor(0.7, 0.7, 0.7)
+
+	f.ignoreBox = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
+	f.ignoreBox:SetHeight(20)
+	f.ignoreBox:SetPoint("LEFT", ignoreLabel, "RIGHT", 10, 0)
+	f.ignoreBox:SetPoint("RIGHT", f, "RIGHT", -PADDING, 0)
+	f.ignoreBox:SetAutoFocus(false)
+	local function commitIgnores(self)
+		local words = {}
+		for word in (self:GetText() or ""):gmatch("[^,%s]+") do
+			words[#words + 1] = word:lower()
+		end
+		getDb().ignores = words
+		Refresh()
+	end
+	f.ignoreBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+	f.ignoreBox:SetScript("OnEditFocusLost", commitIgnores)
+	f.ignoreBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
 	-- Footer: status + test
 	f.statusText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
