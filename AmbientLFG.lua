@@ -406,6 +406,7 @@ local function scanOne(resultID)
 	matches[key] = {
 		name = name ~= "" and name or leader,
 		leader = leader,
+		resultID = resultID,
 		activity = actDisplay,
 		lastSeen = GetTime(),
 		tanks = counts and safeNum(counts.TANK),

@@ -149,7 +149,13 @@ Refresh = function()
 	-- clicking (no clicks = no searches = nothing refreshing lastSeen)
 	local lastResults = ns.GetStats().lastResultsAt or 0
 	for key, m in pairs(matchStore) do
-		if lastResults - m.lastSeen > (db.interval or 10) + 5 then
+		-- A title is a token the client resolves as it draws it. Once the client
+		-- has dropped the listing it can no longer resolve it and the row draws
+		-- "Unknown" — and a listing the client has dropped is not a current
+		-- match anyway, so it leaves the list rather than sitting there nameless.
+		local info = m.resultID and C_LFGList.GetSearchResultInfo(m.resultID)
+		local gone = not info or ns.Match.safeBool(info.isDelisted)
+		if gone or lastResults - m.lastSeen > (db.interval or 10) + 5 then
 			matchStore[key] = nil
 		else
 			matchList[#matchList + 1] = m
@@ -168,7 +174,12 @@ Refresh = function()
 			CreateAtlasMarkup(ROLE_UI.HEALER.atlas, 12, 12), m.healers or "?",
 			CreateAtlasMarkup(ROLE_UI.DAMAGER.atlas, 12, 12), m.dps or "?")
 		local activity = m.activity and ("|cffffd100%s|r "):format(m.activity) or ""
-		row.text:SetText(("%s  %s%s"):format(comp, activity, m.name))
+		-- the leader leads the row because it is the only part guaranteed to be
+		-- real text; a title token the client has not resolved yet draws as
+		-- "Unknown", and a row that says only that identifies nothing
+		local who = m.leader and (m.leader:match("^([^%-]+)") or m.leader) or ""
+		local title = (m.name and m.name ~= m.leader) and (" " .. m.name) or ""
+		row.text:SetText(("%s  %s|cff9999ff%s|r%s"):format(comp, activity, who, title))
 		row.block.matchLeader = m.leader
 	end
 

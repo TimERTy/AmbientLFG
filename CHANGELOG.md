@@ -17,6 +17,7 @@ The reason is that rule words could never do this job. Since 12.0 a listing's ti
 - The window is titled "AmbientLFG" rather than "Premade Alert".
 - Fix: a listing that was not in the current search's results could alert anyway — a `+8` while you were watching `16-16`. The game reports updates for every listing it is still tracking, including leftovers from an earlier, wider search, and those updates were being treated as matches.
 - An empty search box is no longer watched at all. It is not a filter, it is every group in the category, so it would alert on the whole board and keep alerting as the board churns.
+- Fix: a match could show as "Unknown" in the list. A title is a token the game resolves as it draws it, and once the client has dropped the listing it can no longer resolve it — so such a listing now leaves the list, and every row leads with the leader's name, which is always real text.
 - An "Open Group Finder" button in the window, since setting the search up is the one thing that has to happen in Blizzard's window.
 - The window now says when auto-search is paused because the Group Finder is open. It always stood down while you browse — searching then stomps the results you are reading — but it said nothing, which looked identical to being broken.
 - Fix: the search box is only readable while the Group Finder is open, so the text is remembered from the last search you ran. Reading it with the window shut reported an empty box.
