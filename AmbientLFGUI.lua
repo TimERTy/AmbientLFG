@@ -1,7 +1,7 @@
 local _, ns = ...
 
 local FRAME_WIDTH = 400
-local FRAME_HEIGHT = 534
+local FRAME_HEIGHT = 400
 local PADDING = 10
 local ROW_HEIGHT = 24
 
@@ -30,9 +30,9 @@ local function attachLabel(cb, label)
 	return cb
 end
 
--- Checkboxes and radio buttons ship at different sizes, which left the two
--- kinds sitting at different heights on adjacent rows. Both are forced to one
--- size; the radio template sizes its textures explicitly, so they have to be
+-- Checkboxes ship at a different size from the surrounding controls, which
+-- left adjacent rows sitting at different heights. One size for all of them;
+-- the templates size their textures explicitly, so those have to be
 -- re-anchored to follow the button.
 local CONTROL_SIZE = 24
 
@@ -56,13 +56,6 @@ local function MakeCheckbox(parent, label, onClick)
 	return attachLabel(cb, label)
 end
 
--- Single-choice controls are radio buttons: a checkbox invites the reading
--- that several can be ticked at once. Exclusivity differs per group, so the
--- caller wires OnClick.
-local function MakeRadio(parent, label)
-	return attachLabel(sizeControl(CreateFrame("CheckButton", nil, parent, "UIRadioButtonTemplate")), label)
-end
-
 local function MakeButton(parent, label, width, onClick)
 	local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
 	btn:SetSize(width, 22)
@@ -73,9 +66,9 @@ end
 
 local Refresh -- forward declaration
 
-local function AcquireRuleRow(f, i)
-	f.ruleRows = f.ruleRows or {}
-	local row = f.ruleRows[i]
+local function AcquireRow(f, i)
+	f.rows = f.rows or {}
+	local row = f.rows[i]
 	if not row then
 		row = CreateFrame("Frame", nil, f.scrollChild)
 		row:SetHeight(ROW_HEIGHT)
@@ -91,52 +84,29 @@ local function AcquireRuleRow(f, i)
 		row.text:SetJustifyH("LEFT")
 		row.text:SetWordWrap(false)
 
-		row.delete = CreateFrame("Button", nil, row, "UIPanelCloseButton")
-		row.delete:SetSize(20, 20)
-		row.delete:SetPoint("RIGHT", row, "RIGHT", -2, 0)
-		row.delete:SetScript("OnClick", function(self)
+		row.block = CreateFrame("Button", nil, row, "UIPanelCloseButton")
+		row.block:SetSize(20, 20)
+		row.block:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+		row.block:SetScript("OnClick", function(self)
 			if self.matchLeader then
 				ns.BlockLeader(self.matchLeader)
 				Refresh()
-				return
-			end
-			local db = ns.GetDB()
-			if db and db.rules[self.ruleIndex] then
-				table.remove(db.rules, self.ruleIndex)
-				Refresh()
 			end
 		end)
-		row.delete:SetScript("OnEnter", function(self)
+		row.block:SetScript("OnEnter", function(self)
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-			GameTooltip:SetText(self.matchLeader
-				and ("Block %s — never alert for their groups again"):format(self.matchLeader)
-				or "Delete this rule")
+			GameTooltip:SetText(("Block %s — never alert for their groups again"):format(
+				self.matchLeader or "this leader"))
 			GameTooltip:Show()
 		end)
-		row.delete:SetScript("OnLeave", function()
+		row.block:SetScript("OnLeave", function()
 			GameTooltip:Hide()
 		end)
 
-		f.ruleRows[i] = row
+		f.rows[i] = row
 	end
 	row:Show()
 	return row
-end
-
-local function RuleDisplayText(rule)
-	local parts = {}
-	for _, w in ipairs(rule.words) do
-		parts[#parts + 1] = w
-	end
-	local text = table.concat(parts, " ")
-	for _, role in ipairs(rule.roles) do
-		text = text .. " " .. CreateAtlasMarkup(ROLE_UI[role].atlas, 14, 14)
-	end
-	if rule.category then
-		-- 2 = GROUP_FINDER_CATEGORY_ID_DUNGEONS; raids are the default
-		text = text .. (rule.category == 2 and " |cff999999(Dungeons)|r" or " |cff999999(Raids)|r")
-	end
-	return text
 end
 
 Refresh = function()
@@ -153,6 +123,9 @@ Refresh = function()
 	ui.flashCB:SetChecked(db.flash)
 	ui.autoCB:SetChecked(db.auto)
 	ui.debugCB:SetChecked(db.debug)
+	for role, cb in pairs(ui.roleCBs) do
+		cb:SetChecked(db.roles and db.roles[role] or false)
+	end
 	if not ui.intervalBox:HasFocus() then
 		ui.intervalBox:SetText(tostring(db.interval))
 	end
@@ -160,28 +133,16 @@ Refresh = function()
 		ui.ignoreBox:SetText(table.concat(db.ignores or {}, ", "))
 	end
 
-	local rules = db.rules
-	local y = 0
-	local rowIndex = 0
-	local function nextRow()
-		rowIndex = rowIndex + 1
-		local row = AcquireRuleRow(ui, rowIndex)
-		row:SetPoint("TOP", ui.scrollChild, "TOP", 0, -y)
-		y = y + ROW_HEIGHT
-		return row
-	end
+	-- The watched search is the whole filter now, and it lives in the Group
+	-- Finder rather than here, so the window has to say what it currently is —
+	-- unsaid, it is invisible state that reads as the addon being broken.
+	local watching = ns.GetWatchedSearch()
+	ui.watchText:SetText(watching
+		and ("Watching |cffffd100%s|r"):format(watching)
+		or "|cffffcc00Nothing to watch|r — run the search you want in the Group Finder once")
 
-	for i, rule in ipairs(rules) do
-		local row = nextRow()
-		row.bg:SetColorTexture(0.15, 0.15, 0.15, i % 2 == 0 and 0.4 or 0)
-		row.text:SetText(RuleDisplayText(rule))
-		row.delete.ruleIndex = i
-		row.delete.matchLeader = nil
-		row.delete:Show()
-	end
-
-	-- live list of currently-listed groups matching a rule; the opaque
-	-- title tokens render as real text inside a FontString
+	-- live list of currently-listed groups; the opaque title tokens render as
+	-- real text inside a FontString
 	local matchStore = ns.GetMatches()
 	local matchList = {}
 	-- expire a match only when it was absent from NEWER search results;
@@ -197,14 +158,11 @@ Refresh = function()
 	end
 	table.sort(matchList, function(a, b) return a.lastSeen > b.lastSeen end)
 
-	y = y + 8 -- visual break between the rules and the live matches
-	local header = nextRow()
-	header.bg:SetColorTexture(0.1, 0.3, 0.12, 0.7)
-	header.text:SetText(("|cff66ff66Current matches (%d)|r"):format(#matchList))
-	header.delete:Hide()
-
+	local y = 0
 	for i, m in ipairs(matchList) do
-		local row = nextRow()
+		local row = AcquireRow(ui, i)
+		row:SetPoint("TOP", ui.scrollChild, "TOP", 0, -y)
+		y = y + ROW_HEIGHT
 		row.bg:SetColorTexture(0.1, 0.25, 0.12, i % 2 == 0 and 0.35 or 0.15)
 		local comp = ("%s%s %s%s %s%s"):format(
 			CreateAtlasMarkup(ROLE_UI.TANK.atlas, 12, 12), m.tanks or "?",
@@ -212,22 +170,16 @@ Refresh = function()
 			CreateAtlasMarkup(ROLE_UI.DAMAGER.atlas, 12, 12), m.dps or "?")
 		local activity = m.activity and ("|cffffd100%s|r "):format(m.activity) or ""
 		row.text:SetText(("%s  %s%s"):format(comp, activity, m.name))
-		row.delete.ruleIndex = nil
-		row.delete.matchLeader = m.leader
-		row.delete:Show()
+		row.block.matchLeader = m.leader
 	end
 
-	if ui.ruleRows then
-		for i = rowIndex + 1, #ui.ruleRows do
-			ui.ruleRows[i]:Hide()
+	if ui.rows then
+		for i = #matchList + 1, #ui.rows do
+			ui.rows[i]:Hide()
 		end
 	end
 
-	if #rules == 0 and #matchList == 0 then
-		ui.emptyText:Show()
-	else
-		ui.emptyText:Hide()
-	end
+	ui.emptyText:SetShown(#matchList == 0)
 	ui.scrollChild:SetHeight(math.max(y, 1))
 
 	local stats = ns.GetStats()
@@ -240,17 +192,10 @@ Refresh = function()
 	if stats.autoIssued > 0 then
 		heartbeat = heartbeat .. (" | %d auto-searches"):format(stats.autoIssued)
 	end
-	-- The Group Finder's own search box narrows every result the addon sees,
-	-- including background searches, and it keeps doing so with the window
-	-- shut. Left unsaid that is invisible state that looks like a broken rule.
-	local boxText = ns.GetSearchBoxText()
-	if boxText ~= "" then
-		heartbeat = heartbeat .. ("\n|cff88ccffGroup Finder filter \"%s\" is also applied|r"):format(boxText)
-	end
 	if not db.enabled then
 		ui.statusText:SetText("|cffff6666Alerts disabled|r" .. heartbeat)
 	elseif db.auto and not ns.IsArmed() then
-		ui.statusText:SetText("|cffffcc00Auto-search idle — add a rule to start watching|r" .. heartbeat)
+		ui.statusText:SetText("|cffffcc00Auto-search idle — search once in the Group Finder to arm it|r" .. heartbeat)
 	elseif db.auto and stats.suspended then
 		ui.statusText:SetText("|cffff6666Auto-search suspended — searches keep failing (Group Finder not usable right now?). Toggle auto-search to retry.|r" .. heartbeat)
 	elseif db.auto and stats.backoffUntil and GetTime() < stats.backoffUntil then
@@ -381,16 +326,52 @@ local function CreateUI()
 	end)
 	f.debugCB:SetPoint("LEFT", secText, "RIGHT", 16, 0)
 
-	-- Rules list
-	local rulesHeader = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	rulesHeader:SetPoint("TOPLEFT", f.autoCB, "BOTTOMLEFT", 0, -8)
-	rulesHeader:SetText("Rules — an alert fires if ANY rule matches")
-	rulesHeader:SetTextColor(0.7, 0.7, 0.7)
+	-- Roles are one global setting, not a property of a rule: they say which
+	-- seats you can take. None ticked means every group the search returns.
+	local rolesLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	rolesLabel:SetPoint("TOPLEFT", f.autoCB, "BOTTOMLEFT", 0, -10)
+	rolesLabel:SetText("Alert me when a group has an open seat for:")
+	rolesLabel:SetTextColor(0.7, 0.7, 0.7)
+
+	f.roleCBs = {}
+	local anchor
+	for _, role in ipairs(ROLE_ORDER) do
+		local cb = MakeCheckbox(f, CreateAtlasMarkup(ROLE_UI[role].atlas, 14, 14) .. " " .. ROLE_UI[role].label,
+			function(checked)
+				local db = getDb()
+				db.roles = db.roles or {}
+				db.roles[role] = checked or nil
+				Refresh()
+			end)
+		if anchor then
+			cb:SetPoint("LEFT", anchor.label, "RIGHT", 12, 0)
+		else
+			cb:SetPoint("TOPLEFT", rolesLabel, "BOTTOMLEFT", 0, -2)
+		end
+		anchor = cb
+		f.roleCBs[role] = cb
+	end
+
+	f.anyRoleNote = f:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+	f.anyRoleNote:SetPoint("LEFT", anchor.label, "RIGHT", 12, 0)
+	f.anyRoleNote:SetText("(none = any group)")
+
+	-- What is being watched, above the list it produces
+	f.watchText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	f.watchText:SetPoint("TOPLEFT", f.roleCBs[ROLE_ORDER[1]], "BOTTOMLEFT", 0, -8)
+	f.watchText:SetPoint("RIGHT", f, "RIGHT", -PADDING, 0)
+	f.watchText:SetJustifyH("LEFT")
+	f.watchText:SetWordWrap(true)
+
+	local listHeader = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	listHeader:SetPoint("TOPLEFT", f.watchText, "BOTTOMLEFT", 0, -8)
+	listHeader:SetText("Current matches")
+	listHeader:SetTextColor(0.7, 0.7, 0.7)
 
 	local listBg = CreateFrame("Frame", nil, f, "BackdropTemplate")
-	listBg:SetPoint("TOPLEFT", rulesHeader, "BOTTOMLEFT", 0, -4)
+	listBg:SetPoint("TOPLEFT", listHeader, "BOTTOMLEFT", 0, -4)
 	listBg:SetPoint("RIGHT", f, "RIGHT", -PADDING, 0)
-	listBg:SetPoint("BOTTOM", f, "BOTTOM", 0, 200)
+	listBg:SetPoint("BOTTOM", f, "BOTTOM", 0, 70)
 	listBg:SetBackdrop({
 		bgFile = "Interface\\Buttons\\WHITE8x8",
 		edgeFile = "Interface\\Buttons\\WHITE8x8",
@@ -411,161 +392,13 @@ local function CreateUI()
 
 	f.emptyText = listBg:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	f.emptyText:SetPoint("CENTER")
-	f.emptyText:SetText("No rules yet — add one below, e.g. \"mythic nerub\" + Tank")
+	f.emptyText:SetText("No matching groups right now")
 	f.emptyText:SetTextColor(0.5, 0.5, 0.5)
 
-	-- Add-rule area
-	local addHeader = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	addHeader:SetPoint("TOPLEFT", listBg, "BOTTOMLEFT", 0, -10)
-	addHeader:SetText("New rule — ALL its words must match, plus open roles")
-	addHeader:SetTextColor(0.7, 0.7, 0.7)
-
-	f.addBox = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-	f.addBox:SetHeight(20)
-	f.addBox:SetPoint("TOPLEFT", addHeader, "BOTTOMLEFT", 6, -6)
-	f.addBox:SetPoint("RIGHT", f, "RIGHT", -PADDING, 0)
-	f.addBox:SetAutoFocus(false)
-
-	-- section picker (raids default)
-	local raidCB = MakeRadio(f, "Raids")
-	raidCB:SetPoint("TOPLEFT", f.addBox, "BOTTOMLEFT", -6, -2)
-	local dungeonCB = MakeRadio(f, "Dungeons")
-	dungeonCB:SetPoint("LEFT", raidCB.label, "RIGHT", 12, 0)
-	f.raidCB, f.dungeonCB = raidCB, dungeonCB
-
-	-- Difficulty is matched through the activity name, which for a raid is
-	-- always qualified ("Nerub-ar Palace (Mythic)"), so a raid rule that names
-	-- no difficulty matches all of them at once; at least one stays ticked.
-	-- Several may be ticked, becoming one alternation word. Dungeon listings
-	-- are keystones in practice, so the row is hidden there and a dungeon rule
-	-- carries no difficulty word at all.
-	local DIFFS = {
-		{ label = "Normal", word = "normal" },
-		{ label = "Heroic", word = "heroic" },
-		{ label = "Mythic", word = "mythic" },
-	}
-	local DEFAULT_DIFF = 3
-	f.diffCBs = {}
-	local function anyDiffChecked()
-		for _, cb in ipairs(f.diffCBs) do
-			if cb:GetChecked() then
-				return true
-			end
-		end
-		return false
-	end
-	for i, d in ipairs(DIFFS) do
-		local cb
-		cb = MakeCheckbox(f, d.label, function(checked)
-			-- unticking the last one would silently widen the rule to every
-			-- difficulty at once, so refuse it
-			if not checked and not anyDiffChecked() then
-				cb:SetChecked(true)
-			end
-		end)
-		if i == 1 then
-			cb:SetPoint("TOPLEFT", raidCB, "BOTTOMLEFT", 0, -2)
-		else
-			cb:SetPoint("LEFT", f.diffCBs[i - 1].label, "RIGHT", 10, 0)
-		end
-		cb.word = d.word
-		f.diffCBs[i] = cb
-	end
-
-	f.roleCBs = {}
-	local anchor
-	for _, role in ipairs(ROLE_ORDER) do
-		local cb = MakeCheckbox(f, CreateAtlasMarkup(ROLE_UI[role].atlas, 14, 14) .. " " .. ROLE_UI[role].label, function() end)
-		if anchor then
-			cb:SetPoint("LEFT", anchor.label, "RIGHT", 12, 0)
-		else
-			cb:SetPoint("TOPLEFT", f.diffCBs[1], "BOTTOMLEFT", 0, -2)
-		end
-		anchor = cb
-		f.roleCBs[role] = cb
-		f.roleAnchor = f.roleAnchor or cb
-	end
-
-	-- Re-anchoring the rows below the difficulty row made the whole form jump
-	-- when the section changed. The row keeps its space and states what a
-	-- dungeon rule matches instead.
-	f.diffNote = f:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-	f.diffNote:SetPoint("LEFT", f.diffCBs[1], "LEFT", 4, 0)
-	f.diffNote:SetText("Keystones — no difficulty to pick")
-
-	local function selectSection(dungeons)
-		raidCB:SetChecked(not dungeons)
-		dungeonCB:SetChecked(dungeons)
-		for _, cb in ipairs(f.diffCBs) do
-			cb:SetShown(not dungeons)
-		end
-		f.diffNote:SetShown(dungeons)
-		if not dungeons and not anyDiffChecked() then
-			f.diffCBs[DEFAULT_DIFF]:SetChecked(true)
-		end
-	end
-	raidCB:SetScript("OnClick", function() selectSection(false) end)
-	dungeonCB:SetScript("OnClick", function() selectSection(true) end)
-	selectSection(false)
-
-	-- default the role selection to whatever the player's current spec is
-	local function resetRoleChecks()
-		local spec = GetSpecialization and GetSpecialization()
-		local myRole = spec and GetSpecializationRole and GetSpecializationRole(spec)
-		for role, cb in pairs(f.roleCBs) do
-			cb:SetChecked(role == myRole)
-		end
-	end
-	resetRoleChecks()
-
-	local function addRule()
-		local db = ns.GetDB()
-		local input = f.addBox:GetText() or ""
-		if dungeonCB:GetChecked() then
-			input = input .. " +dungeon"
-		else
-			-- several difficulties are one either/or word, not several words:
-			-- rule words are ANDed, and no listing is Normal and Heroic at once
-			local diffs = {}
-			for _, cb in ipairs(f.diffCBs) do
-				if cb:GetChecked() then
-					diffs[#diffs + 1] = cb.word
-				end
-			end
-			if #diffs > 0 then
-				input = input .. " " .. table.concat(diffs, "|")
-			end
-		end
-		for _, role in ipairs(ROLE_ORDER) do
-			if f.roleCBs[role]:GetChecked() then
-				input = input .. " +" .. ROLE_UI[role].label:lower()
-			end
-		end
-		local rule, err = ns.parseRule(input)
-		if not rule then
-			ns.msg(err)
-			return
-		end
-		table.insert(db.rules, rule)
-		-- Only the words are cleared. Rules are added in runs that share a
-		-- section, difficulty and role, so resetting those made every rule after
-		-- the first take four extra clicks to say the same thing again.
-		f.addBox:SetText("")
-		f.addBox:ClearFocus()
-		Refresh()
-	end
-
-	f.addButton = MakeButton(f, "Add", 70, addRule)
-	f.addButton:SetPoint("LEFT", anchor.label, "RIGHT", 16, 0)
-	f.addButton:SetPoint("RIGHT", f, "RIGHT", -PADDING, 0)
-	f.addBox:SetScript("OnEnterPressed", addRule)
-	f.addBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-
-	-- Ignore words sit below the rule form: they qualify every rule rather
-	-- than belonging to the one being typed, and splitting the form in half
-	-- read as if they did.
+	-- Ignore words qualify every alert, so they sit below the list rather than
+	-- inside the controls that decide what is searched.
 	local ignoreLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	ignoreLabel:SetPoint("TOPLEFT", f.roleAnchor, "BOTTOMLEFT", 0, -12)
+	ignoreLabel:SetPoint("TOPLEFT", listBg, "BOTTOMLEFT", 0, -10)
 	ignoreLabel:SetText("Ignore:")
 	ignoreLabel:SetTextColor(0.7, 0.7, 0.7)
 

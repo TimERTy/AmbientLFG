@@ -1,16 +1,20 @@
 # Changelog
 
-## 0.3.5 (unreleased)
-- Fix: the roles on a rule were required all at once. Ticking Tank, Healer and DPS asked for a group with every role still open — an empty group — so the rule matched nothing and looked simply broken. Roles are either/or now: they say which roles you can fill.
-- Fix: `/alfg add +18` was rejected as an unknown tag, so the keystone filtering 0.3.4 added could not actually be typed the way the docs described it. `+18` and `18` now mean the same thing, and a key matches whether or not the group typed the plus.
-- Fix: a rule with no `+raid` or `+dungeon` searched raids only, so a keystone rule alerted on nothing while reporting listings scanned. Untagged rules now search both sections, which is what they already matched against.
-- Keystone levels can also be filtered by the Group Finder's own search box. A rule word matches the title the group typed, which misses groups that left the default title; typing `14` (or a range like `12-14`) into Blizzard's search box filters on the real key level instead, and that filter keeps applying to the addon's background searches after you close the window. The settings window shows the filter when one is set, since it silently narrows everything.
-- Section is a pair of radio buttons, since only one was ever selectable. Raids always has a difficulty selected — an unqualified raid rule matched Normal, Heroic and Mythic at once — and Dungeons hides the difficulty row rather than offering M+ next to raid difficulties. Difficulty stays checkboxes: picking Normal and Heroic means either, not both at once.
-- Clicking a checkbox's label toggles it, instead of only the box itself; radio buttons and checkboxes are the same size, so adjacent rows line up; switching to Dungeons no longer shifts the rest of the form up.
-- Ignore words moved below the rule form — they apply to every rule, not to the one being typed.
-- Adding a rule keeps the section, difficulty and roles you picked, so a run of similar rules does not mean re-clicking the same four things each time.
+## 0.4.0
+**Rules are gone. You craft the search; the addon runs it for you.**
+
+Set up the search you want in Blizzard's own Group Finder — category, filters, and the search box, including a keystone level or a range like `12-14` — and run it once. AmbientLFG replays exactly that search in the background and alerts you when a group appears with a seat you can fill. Saved rules are dropped on first login and your current spec's role is ticked for you.
+
+The reason is that rule words could never do this job. Since 12.0 a listing's title reaches an addon as an opaque token — the game renders it on screen, but the characters an addon receives are an id, not words — and that is true even when the group typed the title themselves. A `+14` rule could not match a listing plainly titled `+14`. Blizzard's search box can: for keystones it is a key-*range* filter the server evaluates against the real key level, and it keeps applying to the addon's background searches after you close the window.
+
+- Roles are now one setting rather than a property of each rule: tick the roles you can play, and a group alerts if any one of them has an open seat. None ticked means every group the search returns.
+- The window names the search it is watching, so the filter that decides everything is never invisible state.
+- Auto-search does nothing until you have run a search yourself, and says so, instead of quietly inventing one that approximated the panel's filters and could not carry the search box at all.
+- `/alfg roles tank dps` (or `any`) replaces `/alfg add`, `del` and `clear`.
+- Fix: the roles on a rule were required all at once. Ticking Tank, Healer and DPS asked for a group with every role still open — an empty group — so it matched nothing and looked simply broken.
+- Clicking a checkbox's label toggles it, instead of only the box itself.
 - A queued background search now also fires on a keypress, not only on a click in the world. WoW requires a hardware event to run the search, and if you move with the keyboard you could go a long stretch without clicking anything while searches waited.
-- New `/alfg diag` prints what the addon actually received for the listings on screen — the raw and filtered listing counts, and whether each title and comment arrived as readable text or an unreadable token.
+- New `/alfg diag` prints what the addon actually received for the listings on screen — the listing counts, whether each title and comment arrived as readable text or an unreadable token, and why each listing did or did not match.
 
 ## 0.3.4
 - New: keystone levels can be filtered. A group's key level is in the title it typed, so `/alfg add +18 +tank` works. Numbers now match exactly, so a `+18` rule no longer fires on `+19` or `+188`, and a `+2` rule no longer catches every key from `+20` to `+29`.

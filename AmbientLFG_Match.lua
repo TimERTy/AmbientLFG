@@ -14,6 +14,7 @@ Match.ROLE_TOKENS = {
 	healer = "HEALER", heal = "HEALER", heals = "HEALER", healers = "HEALER",
 	dps = "DAMAGER", dd = "DAMAGER", damager = "DAMAGER",
 }
+Match.ROLE_ORDER = { "TANK", "HEALER", "DAMAGER" }
 Match.ROLE_REMAINING = {
 	TANK = "TANK_REMAINING",
 	HEALER = "HEALER_REMAINING",
@@ -149,34 +150,6 @@ function Match.matchableText(text)
 	return text:find("^|K") and "" or text
 end
 
--- A rule word may offer alternatives, written "normal|heroic": the difficulty
--- picker allows several, and rule words are ANDed, so requiring both would
--- match nothing. Lua patterns have no alternation, so each is tried in turn.
-local altCache = {}
-function Match.wordAlternatives(word)
-	local alts = altCache[word]
-	if not alts then
-		alts = {}
-		for part in word:gmatch("[^|]+") do
-			alts[#alts + 1] = part
-		end
-		if #alts == 0 then
-			alts[1] = word
-		end
-		altCache[word] = alts
-	end
-	return alts
-end
-
-function Match.wordMatches(haystack, word)
-	for _, alt in ipairs(Match.wordAlternatives(word)) do
-		if haystack:find(Match.fuzzyPattern(alt)) then
-			return true
-		end
-	end
-	return false
-end
-
 -- Does any ignore word appear in the haystack? Also matches with all
 -- separators stripped, so "W T S" / "W.T.S" hit "wts".
 function Match.matchesIgnoreWord(haystack, ignores)
@@ -189,18 +162,48 @@ function Match.matchesIgnoreWord(haystack, ignores)
 	end
 end
 
-function Match.ruleToString(rule)
+-- Roles are stored as a set so the UI checkboxes and the slash command write
+-- the same thing, and read back in a fixed order so the status line does not
+-- reshuffle between /reloads.
+function Match.rolesToList(roles)
+	local list = {}
+	for _, role in ipairs(Match.ROLE_ORDER) do
+		if roles and roles[role] then
+			list[#list + 1] = role
+		end
+	end
+	return list
+end
+
+function Match.rolesToString(roles)
+	local list = Match.rolesToList(roles)
+	if #list == 0 then
+		return "any role"
+	end
 	local parts = {}
-	for _, w in ipairs(rule.words) do
-		parts[#parts + 1] = w
+	for _, role in ipairs(list) do
+		parts[#parts + 1] = Match.ROLE_LABEL[role]
 	end
-	for _, role in ipairs(rule.roles) do
-		parts[#parts + 1] = "+" .. Match.ROLE_LABEL[role]
+	return table.concat(parts, ", ")
+end
+
+-- "tank dps" / "+tank +dps" -> { TANK = true, DAMAGER = true }. Both spellings
+-- because the slash command reads the same words the old rule tags used.
+function Match.parseRoles(input)
+	local roles, seen = {}, false
+	for token in (input or ""):gmatch("%S+") do
+		local word = token:gsub("^%+", ""):lower()
+		local role = Match.ROLE_TOKENS[word]
+		if not role then
+			return nil, ("unknown role \"%s\" (use tank, healer, dps)"):format(word)
+		end
+		roles[role] = true
+		seen = true
 	end
-	if rule.category == Match.CATEGORY_DUNGEONS then
-		parts[#parts + 1] = "+dungeon"
+	if not seen then
+		return nil, "name at least one role, or \"any\""
 	end
-	return table.concat(parts, " ")
+	return roles
 end
 
 -- Raid listings have no per-role caps, so Blizzard's *_REMAINING counts are
@@ -225,35 +228,23 @@ function Match.roleIsOpen(role, counts, numMembers, categoryID, maxPlayers)
 	return remaining == nil or remaining > 0
 end
 
-function Match.parseRule(input)
-	local rule = { words = {}, roles = {} }
-	for token in input:gmatch("%S+") do
-		local tag = token:match("^%+(%S+)$")
-		-- "+18" is a keystone level, not a tag: people write a key both ways,
-		-- so both spellings become the same bare-number word and match a title
-		-- whether or not the group typed the plus.
-		local keystone = tag and tag:match("^%d+$")
-		if keystone then
-			rule.words[#rule.words + 1] = keystone
-		elseif tag then
-			tag = tag:lower()
-			if tag == "raid" or tag == "raids" then
-				rule.category = Match.CATEGORY_RAIDS
-			elseif tag == "dungeon" or tag == "dungeons" or tag == "m+" or tag == "mplus" then
-				rule.category = Match.CATEGORY_DUNGEONS
-			elseif Match.ROLE_TOKENS[tag] then
-				rule.roles[#rule.roles + 1] = Match.ROLE_TOKENS[tag]
-			else
-				return nil, ("unknown tag \"+%s\" (use +tank, +healer, +dps, +raid, +dungeon)"):format(tag)
-			end
-		else
-			rule.words[#rule.words + 1] = token:lower()
-		end
+-- The addon watches whichever search the player last ran, so the only thing it
+-- can say about that search is what the Search call carried: a category, and
+-- the search box text the engine applies on top of it. The box is the ONLY way
+-- a keystone level can be selected — a listing's title reaches an addon as an
+-- opaque token even when the group typed it — so it is named here rather than
+-- left as invisible state.
+function Match.searchDescription(categoryID, boxText)
+	local where = "Group Finder"
+	if categoryID == Match.CATEGORY_DUNGEONS then
+		where = "Dungeons"
+	elseif categoryID == Match.CATEGORY_RAIDS then
+		where = "Raids"
 	end
-	if #rule.words == 0 and #rule.roles == 0 then
-		return nil, "empty rule"
+	if boxText and boxText ~= "" then
+		return ("%s, filtered by \"%s\""):format(where, boxText)
 	end
-	return rule
+	return where
 end
 
 return Match

@@ -1,8 +1,10 @@
 local ADDON_NAME, ns = ...
 
+-- Roles are a set rather than a list: it is one global setting ("which roles
+-- can you fill"), not a per-listing rule, and an empty set means any listing.
 local defaults = {
 	enabled = true,
-	rules = {},
+	roles = {},
 	ignores = { "wts", "sell", "boost", "carry" },
 	sound = true,
 	flash = true,
@@ -16,10 +18,10 @@ local defaults = {
 -- the game); this file keeps the WoW-API-touching orchestration.
 local Match = ns.Match
 local safeStr, safeBool, safeNum = Match.safeStr, Match.safeBool, Match.safeNum
-local normalizeText, wordMatches = Match.normalizeText, Match.wordMatches
-local matchesIgnoreWord, ruleToString, parseRule = Match.matchesIgnoreWord, Match.ruleToString, Match.parseRule
+local normalizeText, matchesIgnoreWord = Match.normalizeText, Match.matchesIgnoreWord
 local roleIsOpen, matchableText = Match.roleIsOpen, Match.matchableText
-local CATEGORY_DUNGEONS, CATEGORY_RAIDS = Match.CATEGORY_DUNGEONS, Match.CATEGORY_RAIDS
+local rolesToList, rolesToString = Match.rolesToList, Match.rolesToString
+local parseRoles, searchDescription = Match.parseRoles, Match.searchDescription
 
 local db
 local frame = CreateFrame("Frame")
@@ -92,35 +94,27 @@ local function activityData(info)
 	return names, categoryID, maxPlayers, display
 end
 
-local function ruleMatches(rule, haystack, resultID, info, categoryID, maxPlayers)
-	if rule.category and categoryID and rule.category ~= categoryID then
+-- What the search returned is what the player asked for — the addon does not
+-- second-guess it. All that is left to decide per listing is whether there is
+-- a seat you could take.
+--
+-- Roles are either/or, not all-of: ticking Tank and Healer says which roles
+-- you can play, and a group needing every role at once is an empty group.
+local function rolesOpen(resultID, info, categoryID, maxPlayers)
+	local wanted = rolesToList(db.roles)
+	if #wanted == 0 then
+		return true
+	end
+	local counts = C_LFGList.GetSearchResultMemberCounts(resultID)
+	if type(counts) ~= "table" then
 		return false
 	end
-	for _, word in ipairs(rule.words) do
-		if not wordMatches(haystack, word) then
-			return false
+	for _, role in ipairs(wanted) do
+		if roleIsOpen(role, counts, safeNum(info.numMembers), categoryID, maxPlayers) then
+			return true
 		end
 	end
-	-- Roles are either/or, not all-of: ticking Tank and Healer says which
-	-- roles you can play, and a group needing every role at once is an empty
-	-- group. Requiring all of them matched nothing and looked like no bug.
-	if #rule.roles > 0 then
-		local counts = C_LFGList.GetSearchResultMemberCounts(resultID)
-		if type(counts) ~= "table" then
-			return false
-		end
-		local anyOpen = false
-		for _, role in ipairs(rule.roles) do
-			if roleIsOpen(role, counts, safeNum(info.numMembers), categoryID, maxPlayers) then
-				anyOpen = true
-				break
-			end
-		end
-		if not anyOpen then
-			return false
-		end
-	end
-	return true
+	return false
 end
 
 -- 12.0: listing titles and comments are kstrings — opaque |Kk1234|k tokens
@@ -218,7 +212,7 @@ end
 -- every suppressed MATCH (a group that would have alerted) is recorded to
 -- SavedVariables so blocking decisions can be audited afterwards
 local loggedBlocks = {}
-local function logBlock(leader, reason, rule)
+local function logBlock(leader, reason)
 	local k = leader .. "|" .. reason
 	if loggedBlocks[k] then
 		return
@@ -229,7 +223,6 @@ local function logBlock(leader, reason, rule)
 		at = time(),
 		leader = leader,
 		reason = reason,
-		rule = ruleToString(rule),
 	})
 	while #db.blockLog > 30 do
 		table.remove(db.blockLog, 1)
@@ -260,7 +253,8 @@ local function alertMatches(hits)
 	end
 	for i = 1, math.min(#hits, 3) do
 		RaidNotice_AddMessage(RaidWarningFrame,
-			("Group Finder match: \"%s\" (rule: %s)"):format(hits[i].name, hits[i].rule),
+			("Group Finder: \"%s\"%s"):format(hits[i].name,
+				hits[i].activity and (" — " .. hits[i].activity) or ""),
 			ChatTypeInfo["RAID_WARNING"])
 	end
 	if #hits > 3 then
@@ -291,25 +285,15 @@ local function confirmPending()
 	confirmScheduled = false
 	local hits = {}
 	for key, entry in pairs(pendingConfirm) do
-		-- resolve the rule by identity, not index: table.remove on deletion
-		-- shifts indices, and an index-keyed entry would re-verify (and
-		-- alert) against whatever rule slid into the deleted rule's slot
-		local rule
-		for _, r in ipairs(db.rules) do
-			if ruleToString(r) == entry.ruleKey then
-				rule = r
-				break
-			end
-		end
-		local info = rule and C_LFGList.GetSearchResultInfo(entry.resultID)
+		local info = C_LFGList.GetSearchResultInfo(entry.resultID)
 		if not info or safeBool(info.isDelisted) then
-			-- listing gone or rule deleted; un-mark so it can re-match later
+			-- listing gone; un-mark so it can re-match later
 			pendingConfirm[key] = nil
 		else
 			local name, leader, ready = listingIdentity(info)
-			local haystack, categoryID, maxPlayers, comment, reason
+			local haystack, categoryID, maxPlayers, comment, actDisplay, reason
 			if ready then
-				haystack, categoryID, maxPlayers, comment = listingHaystack(info, name, leader)
+				haystack, categoryID, maxPlayers, comment, actDisplay = listingHaystack(info, name, leader)
 				recordAdToken(comment, leader)
 				reason = blockedReason(haystack, leader, comment)
 			end
@@ -325,14 +309,18 @@ local function confirmPending()
 				end
 			elseif reason then
 				pendingConfirm[key] = nil
-				logBlock(leader, reason, rule)
-			elseif not ruleMatches(rule, haystack, entry.resultID, info, categoryID, maxPlayers) then
+				logBlock(leader, reason)
+			elseif not rolesOpen(entry.resultID, info, categoryID, maxPlayers) then
 				pendingConfirm[key] = nil
 			else
 				pendingConfirm[key] = nil
 				if not alerted[key] then
 					alerted[key] = true
-					hits[#hits + 1] = { name = name ~= "" and name or leader, leader = leader, rule = ruleToString(rule) }
+					hits[#hits + 1] = {
+						name = name ~= "" and name or leader,
+						leader = leader,
+						activity = actDisplay,
+					}
 					-- raw title/comment kept in SavedVariables so disguised
 					-- seller text can be inspected byte-for-byte afterwards
 					db.history = db.history or {}
@@ -341,7 +329,6 @@ local function confirmPending()
 						name = name,
 						comment = safeStr(info.comment),
 						leader = leader,
-						rule = ruleToString(rule),
 					})
 					while #db.history > 20 do
 						table.remove(db.history, 1)
@@ -363,7 +350,7 @@ scheduleConfirm = function()
 end
 
 local function scanOne(resultID)
-	if not db or not db.enabled or #db.rules == 0 then
+	if not db or not db.enabled then
 		return
 	end
 	if type(resultID) ~= "number" or (issecretvalue and issecretvalue(resultID)) then
@@ -381,41 +368,34 @@ local function scanOne(resultID)
 	end
 	local haystack, categoryID, maxPlayers, comment, actDisplay = listingHaystack(info, name, leader)
 	recordAdToken(comment, leader)
-	for _, rule in ipairs(db.rules) do
-		if ruleMatches(rule, haystack, resultID, info, categoryID, maxPlayers) then
-			local reason = blockedReason(haystack, leader, comment)
-			if reason then
-				logBlock(leader, reason, rule)
-				return
-			end
-			local ruleStr = ruleToString(rule)
-			-- leaderName can stream as "Name" first and "Name-Realm" later;
-			-- key on the realm-stripped name so the same group can't
-			-- re-alert when the format flips. The rule half of the key is
-			-- the rule's identity string, not its index — indices shift on
-			-- deletion, which made alerted/pendingConfirm state apply to
-			-- the wrong rule.
-			local key = (leader:match("^([^%-]+)") or leader) .. "|" .. ruleStr
-			local counts = C_LFGList.GetSearchResultMemberCounts(resultID)
-			matches[key] = {
-				name = name ~= "" and name or leader,
-				leader = leader,
-				activity = actDisplay,
-				rule = ruleStr,
-				lastSeen = GetTime(),
-				tanks = counts and safeNum(counts.TANK),
-				healers = counts and safeNum(counts.HEALER),
-				dps = counts and safeNum(counts.DAMAGER),
-			}
-			if not alerted[key] and not pendingConfirm[key] then
-				pendingConfirm[key] = { resultID = resultID, ruleKey = ruleStr, tries = 0 }
-				if db.debug then
-					msg(("match queued for confirmation: %s's group"):format(leader))
-				end
-				scheduleConfirm()
-			end
-			return
+	if not rolesOpen(resultID, info, categoryID, maxPlayers) then
+		return
+	end
+	local reason = blockedReason(haystack, leader, comment)
+	if reason then
+		logBlock(leader, reason)
+		return
+	end
+	-- leaderName can stream as "Name" first and "Name-Realm" later; key on the
+	-- realm-stripped name so the same group can't re-alert when the format
+	-- flips. One group is one entry now that there is nothing else to key on.
+	local key = leader:match("^([^%-]+)") or leader
+	local counts = C_LFGList.GetSearchResultMemberCounts(resultID)
+	matches[key] = {
+		name = name ~= "" and name or leader,
+		leader = leader,
+		activity = actDisplay,
+		lastSeen = GetTime(),
+		tanks = counts and safeNum(counts.TANK),
+		healers = counts and safeNum(counts.HEALER),
+		dps = counts and safeNum(counts.DAMAGER),
+	}
+	if not alerted[key] and not pendingConfirm[key] then
+		pendingConfirm[key] = { resultID = resultID, tries = 0 }
+		if db.debug then
+			msg(("match queued for confirmation: %s's group"):format(leader))
 		end
+		scheduleConfirm()
 	end
 end
 
@@ -497,7 +477,7 @@ local function scanResults()
 	end
 	stats.lastResultsAt = GetTime()
 	stats.lastResultCount = #results
-	if not db.enabled or #db.rules == 0 then
+	if not db.enabled then
 		return
 	end
 	startScan(results, true)
@@ -539,87 +519,24 @@ end
 
 local pendingAuto = false
 
--- Searches are constructed from the categories the rules imply, rotating one
--- category per cycle. A search the player ran manually is captured and
--- preferred as a fallback if the constructed call is ever rejected (API
--- signature drift across patches).
-local searchRotation = 0
-
--- An untagged rule matches listings in either category (matchesRule only
--- compares a category the rule actually names), so it has to search both.
--- Searching one of them narrows what an untagged rule can ever alert on to
--- whichever category was picked, silently and with no way to tell from the
--- scan counts.
-local function ruleCategories()
-	local cats, seen = {}, {}
-	local function add(cat)
-		if not seen[cat] then
-			seen[cat] = true
-			cats[#cats + 1] = cat
-		end
-	end
-	for _, rule in ipairs(db.rules) do
-		if rule.category then
-			add(rule.category)
-		else
-			add(CATEGORY_DUNGEONS)
-			add(CATEGORY_RAIDS)
-		end
-	end
-	return cats
-end
-
-local function constructedSearch(categoryID)
-	-- dungeons only display recommended listings; raids search everything —
-	-- a Recommended-only raid search returned 15 listings where the panel
-	-- found 40
-	local filters = 0
-	if categoryID == CATEGORY_DUNGEONS then
-		filters = Enum.LFGListFilter and Enum.LFGListFilter.Recommended or 1
-	end
-	-- before the Group Finder panel has initialized once, the saved language
-	-- filter can be an empty set — which matches NOTHING and yields
-	-- 0-result searches; fall back to the default (player locale) filter
-	local language = C_LFGList.GetLanguageSearchFilter and C_LFGList.GetLanguageSearchFilter() or nil
-	if (not language or next(language) == nil) and C_LFGList.GetDefaultLanguageSearchFilter then
-		language = C_LFGList.GetDefaultLanguageSearchFilter()
-	end
-	-- the advanced filter is a dungeon-panel feature; never let an
-	-- uninitialized copy constrain raid searches
-	local advanced
-	if categoryID == CATEGORY_DUNGEONS and C_LFGList.GetAdvancedFilter then
-		advanced = C_LFGList.GetAdvancedFilter()
-		if advanced and next(advanced) == nil then
-			advanced = nil
-		end
-	end
-	return pcall(C_LFGList.Search, categoryID, filters, 0, language, nil, advanced)
-end
-
+-- The watched search is the player's own, replayed verbatim. Nothing is
+-- constructed: a search the addon builds only approximates the panel's filters,
+-- and the one filter that matters most — the search box, which is the only way
+-- a keystone level can be selected at all — is engine state the addon cannot
+-- read into a call it assembles itself. So with no captured search there is
+-- nothing to watch, and the addon says so rather than guessing.
 local function issueSearch()
 	-- deliberately no per-cycle chat line even in debug mode — it was pure
 	-- noise; the scan summary and the UI heartbeat already show the cadence
+	if not lastSearch then
+		return
+	end
 	stats.autoIssued = stats.autoIssued + 1
 	stats.lastAutoAt = GetTime()
-	local cats = ruleCategories()
-	if #cats > 0 then
-		searchRotation = searchRotation % #cats + 1
-		local cat = cats[searchRotation]
-		-- prefer replaying the player's own captured search when it targets
-		-- this category: it reproduces the panel's exact filters, where the
-		-- constructed search only approximates them
-		if lastSearch and lastSearch[1] == cat
-			and pcall(C_LFGList.Search, unpack(lastSearch, 1, lastSearch.n)) then
-			return
-		end
-		if constructedSearch(cat) then
-			return
-		end
-	end
-	if lastSearch and not pcall(C_LFGList.Search, unpack(lastSearch, 1, lastSearch.n)) then
+	if not pcall(C_LFGList.Search, unpack(lastSearch, 1, lastSearch.n)) then
 		lastSearch = nil
 		db.lastSearch = nil
-		msg("searching failed — open Group Finder and search once to re-arm")
+		msg("searching failed — open the Group Finder and search once to re-arm")
 	end
 end
 
@@ -657,7 +574,7 @@ local function setPending(state)
 end
 
 local function autoSearch()
-	if not db.enabled or not db.auto or (#db.rules == 0 and not lastSearch) then
+	if not db.enabled or not db.auto or not lastSearch then
 		return
 	end
 	if suspended or GetTime() < backoffUntil or playerIsBrowsing() then
@@ -750,6 +667,21 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 			end
 		end
 		db.keywords = nil -- pre-rule format, never shipped
+		-- Rule words could never see a keystone level: a listing's title
+		-- reaches an addon as an opaque token even when the group typed it.
+		-- The Group Finder's own search box can, so the search is the filter
+		-- now and the saved rules are dropped rather than migrated.
+		if db.rules then
+			db.rules = nil
+			if next(db.roles) == nil then
+				local spec = GetSpecialization and GetSpecialization()
+				local myRole = spec and GetSpecializationRole and GetSpecializationRole(spec)
+				if myRole then
+					db.roles[myRole] = true
+				end
+			end
+			msg("rules have been replaced by the search you run yourself — open the Group Finder, set up the search you want, run it once, and /alfg watches it.")
+		end
 		if type(db.lastSearch) == "table" and type(db.lastSearch.n) == "number" then
 			lastSearch = db.lastSearch
 		end
@@ -786,33 +718,35 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 	end
 end)
 
+local function watchedSearch()
+	if not lastSearch then
+		return nil
+	end
+	return searchDescription(lastSearch[1], searchBoxText())
+end
+
 local function status()
-	msg(("v%s | %s | auto-search: %s (every %ds)%s"):format(
+	msg(("v%s | %s | auto-search: %s (every %ds)"):format(
 		(C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)(ADDON_NAME, "Version") or "?",
 		db.enabled and "enabled" or "disabled",
 		db.auto and "on" or "off",
-		db.interval,
-		(lastSearch or #db.rules > 0) and "" or " | add a rule to start watching"
-	))
-	if #db.rules == 0 then
-		msg("no rules — add one with /alfg add mythic nerub +tank")
-	else
-		for i, rule in ipairs(db.rules) do
-			msg(("  rule %d: %s"):format(i, ruleToString(rule)))
-		end
-	end
+		db.interval))
+	local watching = watchedSearch()
+	msg(watching
+		and ("watching: %s"):format(watching)
+		or "nothing to watch — open the Group Finder, set up the search you want, and run it once")
+	msg("alerting when there is an open seat for: " .. rolesToString(db.roles))
 	msg("ignoring groups containing: " .. (#db.ignores > 0 and table.concat(db.ignores, ", ") or "(nothing)"))
 end
 
--- A listing that fails to match looks the same from outside whether its title
--- was unreadable, its roles were full, or the result was a husk. /alfg diag
--- prints what the addon actually received for the listings on screen.
+-- A listing that fails to alert looks the same from outside whether its roles
+-- were full, its leader was blocked, or the result was a husk. /alfg diag
+-- prints what the addon actually received for the listings on screen, and why
+-- each one was or was not a match.
 --
 -- It prints rather than writing SavedVariables: a dump that needs a /reload to
 -- become readable reports nothing at the moment you run it, so a run that found
--- nothing and a run that never happened look identical. The raw-vs-filtered
--- counts on the first line are the whole answer to "is the search box actually
--- filtering" — equal counts mean it is not.
+-- nothing and a run that never happened look identical.
 local function fieldKind(v)
 	if v == nil then
 		return "nil"
@@ -843,9 +777,7 @@ local function diag()
 	-- the pair reports is whether the client dropped anything further. Whether
 	-- the box narrowed is answered by the key levels in the rows below.
 	msg(("diag: box=%q raw=%d filtered=%d"):format(searchBoxText(), rawN, filtN))
-	for i, rule in ipairs(db.rules) do
-		msg(("  rule %d: %s"):format(i, ruleToString(rule)))
-	end
+	msg(("  watching: %s | seats wanted: %s"):format(watchedSearch() or "(nothing)", rolesToString(db.roles)))
 
 	local results = searchResults()
 	if type(results) ~= "table" or #results == 0 then
@@ -857,26 +789,21 @@ local function diag()
 		local info = type(resultID) == "number" and C_LFGList.GetSearchResultInfo(resultID) or nil
 		if info then
 			local name, leader = listingIdentity(info)
-			local haystack, categoryID, _, _, actDisplay = listingHaystack(info, name, leader)
+			local haystack, categoryID, maxPlayers, comment, actDisplay = listingHaystack(info, name, leader)
 			local counts = C_LFGList.GetSearchResultMemberCounts(resultID)
 			local roles = "?"
 			if type(counts) == "table" then
 				roles = ("n%d T%d H%d D%d"):format(safeNum(info.numMembers),
 					safeNum(counts.TANK), safeNum(counts.HEALER), safeNum(counts.DAMAGER))
 			end
-			local misses = {}
-			for _, rule in ipairs(db.rules) do
-				for _, word in ipairs(rule.words) do
-					if not wordMatches(haystack, word) then
-						misses[#misses + 1] = word
-					end
-				end
+			local verdict = blockedReason(haystack, leader, comment)
+			if not verdict and not rolesOpen(resultID, info, categoryID, maxPlayers) then
+				verdict = "no open seat for " .. rolesToString(db.roles)
 			end
-			msg(("  [%d] name=%s %q cmt=%s cat=%s %s act=%q%s"):format(
+			msg(("  [%d] name=%s %q cmt=%s cat=%s %s act=%q -> %s"):format(
 				i, fieldKind(info.name), safeStr(info.name):sub(1, 40),
 				fieldKind(info.comment), tostring(categoryID), roles,
-				tostring(actDisplay):sub(1, 30),
-				#misses > 0 and ("  missed: " .. table.concat(misses, ",")) or ""))
+				tostring(actDisplay):sub(1, 30), verdict or "MATCH"))
 		end
 	end
 	if #results > DIAG_LIMIT then
@@ -890,25 +817,19 @@ SLASH_AMBIENTLFG3 = "/pma"
 SlashCmdList.AMBIENTLFG = function(input)
 	local cmd, rest = input:match("^%s*(%S*)%s*(.-)%s*$")
 	cmd = cmd:lower()
-	if cmd == "add" and rest ~= "" then
-		local rule, err = parseRule(rest)
-		if rule then
-			table.insert(db.rules, rule)
-			msg(("added rule %d: %s"):format(#db.rules, ruleToString(rule)))
+	if cmd == "roles" and rest ~= "" then
+		if rest:lower() == "any" then
+			db.roles = {}
+			msg("alerting on any group the search returns")
 		else
-			msg(err)
+			local roles, err = parseRoles(rest)
+			if roles then
+				db.roles = roles
+				msg("alerting when there is an open seat for: " .. rolesToString(roles))
+			else
+				msg(err)
+			end
 		end
-	elseif (cmd == "del" or cmd == "remove") and rest ~= "" then
-		local i = tonumber(rest)
-		if i and db.rules[i] then
-			local removed = table.remove(db.rules, i)
-			msg(("removed rule %d: %s"):format(i, ruleToString(removed)))
-		else
-			msg("usage: /alfg del <rule number> (see /alfg list)")
-		end
-	elseif cmd == "clear" then
-		wipe(db.rules)
-		msg("rules cleared")
 	elseif cmd == "on" or cmd == "off" then
 		db.enabled = cmd == "on"
 		status()
@@ -961,24 +882,25 @@ SlashCmdList.AMBIENTLFG = function(input)
 	elseif cmd == "diag" then
 		diag()
 	elseif cmd == "test" then
-		alertMatches({ { name = "Test Group", rule = "test" } })
+		alertMatches({ { name = "Test Group", leader = "Testleader", activity = "Mythic+ (M+)" } })
 	elseif cmd == "list" or cmd == "" or cmd == "status" then
 		status()
 	else
-		msg("commands: ui, add <words> [+tank +healer +dps +raid +dungeon], del <n>, clear, list, ignore <word>, unignore <word>, block <leader>, unblock <leader>, on/off, auto on/off, interval <sec>, debug on/off, reset, test, diag")
+		msg("commands: ui, roles <tank healer dps|any>, ignore <word>, unignore <word>, block <leader>, unblock <leader>, on/off, auto on/off, interval <sec>, debug on/off, reset, test, diag")
 	end
 end
 
 -- exports for AmbientLFGUI.lua
 ns.msg = msg
-ns.parseRule = parseRule
-ns.ruleToString = ruleToString
 ns.restartTicker = restartTicker
 ns.GetDB = function() return db end
-ns.IsArmed = function() return lastSearch ~= nil or (db ~= nil and #db.rules > 0) end
+ns.IsArmed = function() return lastSearch ~= nil end
+ns.GetWatchedSearch = watchedSearch
 ns.GetStats = function() return stats end
 ns.GetSearchBoxText = searchBoxText
 ns.GetMatches = function() return matches end
 ns.BlockLeader = blockLeader
 ns.ResetAlerted = function() wipe(alerted) end
-ns.TestAlert = function() alertMatches({ { name = "Test Group", leader = "Testleader", rule = "test" } }) end
+ns.TestAlert = function()
+	alertMatches({ { name = "Test Group", leader = "Testleader", activity = "Mythic+ (M+)" } })
+end

@@ -1,33 +1,35 @@
 # AmbientLFG
 
-Watches the WoW Premade Group Finder for groups matching your criteria and alerts you the moment one appears — so you can stop refreshing the browse window and just play.
+Watches the WoW Premade Group Finder for the groups you're actually looking for and alerts you the moment one appears — so you can stop refreshing the browse window and just play.
 
 ## What it does
 
-- **Rules**: "alert me for Mythic Nerub-ar Palace groups that still need a tank" is `/alfg add mythic nerub +tank` (or build it in the UI). Words match the activity — the instance and difficulty a group is listed for — plus the leader's name, and are spelling-tolerant ("Neroob" matches "nerub").
+You set up the search you want in Blizzard's own Group Finder — category, filters, and the search box, including a keystone level or a range like `12-14`. Run it once. AmbientLFG then replays exactly that search in the background and alerts you when a group comes up that has a seat you can fill.
+
 - **Alerts**: raid-warning banner, sound, and a flashing taskbar icon if you're alt-tabbed.
+- **Roles**: tick the roles you can play. A group alerts if any one of them still has an open seat. Tick none and every group the search returns will alert.
 - **Background watching**: optional auto-search re-checks the Group Finder while you play. It pauses while you browse the Group Finder yourself and resumes when you close it.
-- **Live matches list**: the `/alfg` window shows every currently-listed matching group with its tank/healer/dps counts, activity, difficulty, and title.
-
-## Keystone levels
-
-Key level lives in the listing's title, so match it there: `/alfg add +18 +dungeon +tank`. Write it as `+18` or `18` — they mean the same thing, and either matches a title whether or not the group typed the plus. Numbers are matched exactly: a `+18` rule will not fire on `+19` or `+188`, and a `+2` rule will not catch every key from `+20` to `+29`.
-
-Add `+dungeon` if the rule is only ever about keys. Without it the rule searches raids as well, which costs nothing but a slower cycle.
-
-## What rules can't match
-
-Rules see the listing's title and comment, the activity name and its difficulty, and the leader's name. Two limits are worth knowing:
-
-- **Blizzard's auto-generated titles are unreadable.** When a group doesn't type its own title, the game sends addons an opaque token rather than words. Those listings can still be matched by activity, difficulty and leader, but not by title text.
-- **There is no per-boss activity.** Blizzard lists one activity per instance per difficulty — "Nerub-ar Palace (Mythic)" — so a boss name only matches when the group happens to have typed it into their own title.
+- **Live matches list**: the `/alfg` window shows every currently-listed matching group with its tank/healer/dps counts, activity and title.
 - **Seller filtering**: boost/carry advertisers are recognized and hidden automatically; block any leader forever with one click.
+
+## Why the search lives in the Group Finder
+
+An addon cannot read a listing's title. Since WoW 12.0 the title arrives as an opaque token — the game renders it on screen, but the characters an addon receives are an id, not words — and that is true even when the group typed the title themselves. So a keyword like `+14` can never match a `+14` listing, however plainly it reads to you.
+
+Blizzard's search box is not text matching. For keystones it is a key-*range* filter evaluated by the server against the real key level, which is why it is the only thing that can select one. Setting it up there rather than duplicating it here means the addon watches exactly what you'd see if you kept clicking Refresh yourself.
+
+The filter keeps applying once you close the window, which is why the `/alfg` window always names the search it is currently watching.
 
 ## Usage
 
-1. `/alfg` to open the settings window
-2. Add a rule (section, difficulty, words, roles that must be open)
-3. Enable auto-search
-4. When the alert fires, open the Group Finder and sign up
+1. Open the Group Finder, set up the search you want, and run it once
+2. `/alfg` to open the settings window
+3. Tick the roles you can play
+4. Enable auto-search
+5. When the alert fires, open the Group Finder and sign up
 
 Signing up stays a manual click — Blizzard requires it — so pairing this with a one-click-apply addon like SmartLFG works well.
+
+## Commands
+
+`/alfg` opens the window. `/alfg roles tank dps` (or `any`), `/alfg auto on`, `/alfg interval 15`, `/alfg ignore wts`, `/alfg block <leader>`, `/alfg diag` to see exactly what the addon received for the listings on screen.
