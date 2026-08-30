@@ -111,14 +111,22 @@ end
 -- Two settings for one thing can disagree, and a disagreement (its Tank, our
 -- DPS) matches nothing while looking exactly like the addon being broken.
 --
--- Blizzard sends this filter with Dungeons searches only and drops it for every
--- other category, so it does not apply outside Dungeons here either. A Tank
--- tick left over from dungeons would otherwise quietly narrow a raid search by
--- a setting the game itself is ignoring, with nothing on screen saying so.
-local function wantedRoles()
-	if not lastSearch or lastSearch[1] ~= Match.CATEGORY_DUNGEONS then
-		return {}
-	end
+local function specRole()
+	local spec = GetSpecialization and GetSpecialization()
+	local role = spec and GetSpecializationRole and GetSpecializationRole(spec)
+	return safeStr(role)
+end
+
+-- Raids have no role filter in the game, so the addon keeps its own for them.
+local function raidRoles()
+	return Match.resolveRaidRoles(db and db.raidRoles, specRole())
+end
+
+-- Blizzard sends its "role available" boxes with Dungeons searches only and
+-- drops them for every other category, so they do not apply outside Dungeons
+-- here either: a Tank tick left over from dungeons would otherwise quietly
+-- narrow a raid search by a setting the game itself is ignoring.
+local function dungeonRoles()
 	local f = C_LFGList.GetAdvancedFilter and C_LFGList.GetAdvancedFilter()
 	if type(f) ~= "table" then
 		return {}
@@ -128,6 +136,13 @@ local function wantedRoles()
 		HEALER = safeBool(f.needsHealer) and true or nil,
 		DAMAGER = safeBool(f.needsDamage) and true or nil,
 	}
+end
+
+local function wantedRoles()
+	if lastSearch and lastSearch[1] == Match.CATEGORY_DUNGEONS then
+		return dungeonRoles()
+	end
+	return raidRoles()
 end
 
 -- What the search returned is what the player asked for — the addon does not
@@ -854,7 +869,9 @@ local function status()
 		and ("watching: %s"):format(watching)
 		or "nothing to watch — open the Group Finder, set up the search you want, and run it once")
 	msg("alerting when there is an open seat for: " .. rolesToString(wantedRoles())
-		.. " (set in the Group Finder's Filter)")
+		.. (ns.WatchingDungeons() and " (set in the Group Finder's Filter)"
+			or db.raidRoles and " (raids: set in /alfg ui)"
+			or " (raids: your current spec)"))
 	msg("ignoring groups containing: " .. (#db.ignores > 0 and table.concat(db.ignores, ", ") or "(nothing)"))
 end
 
@@ -1003,7 +1020,15 @@ ns.GetWatchedSearch = watchedSearch
 ns.GetStats = function() return stats end
 ns.GetSearchBoxText = searchBoxText
 ns.GetWantedRoles = wantedRoles
-ns.RoleFilterApplies = function()
+ns.GetRaidRoles = raidRoles
+ns.RaidRolesAreAuto = function()
+	return db == nil or db.raidRoles == nil
+end
+-- Passing nil goes back to following the player's spec; passing a set pins it.
+ns.SetRaidRoles = function(roles)
+	db.raidRoles = roles
+end
+ns.WatchingDungeons = function()
 	return lastSearch ~= nil and lastSearch[1] == Match.CATEGORY_DUNGEONS
 end
 ns.GetMatches = function() return matches end

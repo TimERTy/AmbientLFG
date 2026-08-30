@@ -1,7 +1,7 @@
 local _, ns = ...
 
 local FRAME_WIDTH = 400
-local FRAME_HEIGHT = 400
+local FRAME_HEIGHT = 444 -- the raid role row costs the match list its height otherwise
 local PADDING = 10
 local ROW_HEIGHT = 24
 
@@ -127,15 +127,27 @@ Refresh = function()
 			seats[#seats + 1] = CreateAtlasMarkup(ROLE_UI[role].atlas, 14, 14) .. " " .. ROLE_UI[role].label
 		end
 	end
+	local dungeons = ns.WatchingDungeons()
 	if #seats > 0 then
-		ui.rolesText:SetText(("Alerting on an open seat for |cffffd100%s|r — set in the Group Finder's Filter"):format(
-			table.concat(seats, ", ")))
-	elseif ns.RoleFilterApplies() then
+		ui.rolesText:SetText(("Alerting on an open seat for |cffffd100%s|r — %s"):format(
+			table.concat(seats, ", "),
+			dungeons and "set in the Group Finder's Filter"
+				or "the game has no role filter for raids, so this one is set below"))
+	elseif dungeons then
 		ui.rolesText:SetText("Alerting on |cffffd100every group|r the search returns — tick a \"role available\" box in the Group Finder's Filter to narrow it")
 	else
 		-- the Filter's role boxes go out with Dungeons searches only, so saying
-		-- "tick one to narrow it" here would be advice that does nothing
-		ui.rolesText:SetText("Alerting on |cffffd100every group|r the search returns — the Filter's \"role available\" boxes apply to Dungeons only, so the search box is the whole filter here")
+		-- "tick one in the Filter" here would be advice that does nothing
+		ui.rolesText:SetText("Alerting on |cffffd100every group|r the search returns — tick a role below to narrow it")
+	end
+	local auto = ns.RaidRolesAreAuto()
+	local raid = ns.GetRaidRoles()
+	ui.raidAutoCB:SetChecked(auto)
+	for _, role in ipairs(ROLE_ORDER) do
+		local cb = ui.raidRoleCB[role]
+		cb:SetChecked(raid[role] and true or false)
+		cb:SetEnabled(not auto)
+		cb.label:SetTextColor(auto and 0.5 or 1, auto and 0.5 or 1, auto and 0.5 or 1)
 	end
 	if not ui.intervalBox:HasFocus() then
 		ui.intervalBox:SetText(tostring(db.interval))
@@ -348,9 +360,47 @@ local function CreateUI()
 	f.rolesText:SetJustifyH("LEFT")
 	f.rolesText:SetWordWrap(true)
 
+	-- Raids have no role filter in the game, so this one is the addon's own —
+	-- the only setting here with no Blizzard counterpart to disagree with. It
+	-- follows the spec being played rather than storing a role, so it cannot go
+	-- stale on a respec; pinning it is a deliberate second click.
+	local function pinnedRaidRoles()
+		local set = {}
+		for role, on in pairs(ns.GetRaidRoles()) do
+			set[role] = on and true or nil
+		end
+		return set
+	end
+
+	f.raidAutoCB = MakeCheckbox(f, "Raids: use my current spec's role", function(checked)
+		-- unticking pins exactly what is on screen, so it changes nothing until
+		-- a role is actually clicked
+		ns.SetRaidRoles(not checked and pinnedRaidRoles() or nil)
+		Refresh()
+	end)
+	f.raidAutoCB:SetPoint("TOPLEFT", f.rolesText, "BOTTOMLEFT", 0, -8)
+
+	f.raidRoleCB = {}
+	local prev
+	for _, role in ipairs(ROLE_ORDER) do
+		local cb = MakeCheckbox(f, ROLE_UI[role].label, function(checked)
+			local set = pinnedRaidRoles()
+			set[role] = checked or nil
+			ns.SetRaidRoles(set)
+			Refresh()
+		end)
+		if prev then
+			cb:SetPoint("LEFT", prev.label, "RIGHT", 12, 0)
+		else
+			cb:SetPoint("TOPLEFT", f.raidAutoCB, "BOTTOMLEFT", 16, -2)
+		end
+		prev = cb
+		f.raidRoleCB[role] = cb
+	end
+
 	-- What is being watched, above the list it produces
 	f.watchText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	f.watchText:SetPoint("TOPLEFT", f.rolesText, "BOTTOMLEFT", 0, -8)
+	f.watchText:SetPoint("TOPLEFT", f.raidRoleCB[ROLE_ORDER[1]], "BOTTOMLEFT", -16, -8)
 	f.watchText:SetPoint("RIGHT", f, "RIGHT", -PADDING, 0)
 	f.watchText:SetJustifyH("LEFT")
 	f.watchText:SetWordWrap(true)

@@ -182,6 +182,21 @@ function Match.rolesToString(roles)
 	return table.concat(parts, ", ")
 end
 
+-- The Group Finder's "role available" boxes are a Dungeons filter — the game
+-- drops them for every other category — so raid searches have no role filter of
+-- their own and the addon keeps one. Its default is the role you are actually
+-- playing, resolved live so a respec moves it instead of leaving a stale tick
+-- behind; nil means "follow my spec", and an explicit set overrides it.
+function Match.resolveRaidRoles(saved, role)
+	if type(saved) == "table" then
+		return saved
+	end
+	if role and Match.ROLE_LABEL[role] then
+		return { [role] = true }
+	end
+	return {}
+end
+
 -- Raid listings have no per-role caps, so Blizzard's *_REMAINING counts are
 -- effectively always positive there (a 2/4/14 raid still reports open tank
 -- slots). Standard-composition thresholds are the meaningful check instead.
