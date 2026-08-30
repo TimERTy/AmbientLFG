@@ -414,10 +414,12 @@ local function CreateUI()
 	raidCB:SetScript("OnClick", function()
 		raidCB:SetChecked(true)
 		dungeonCB:SetChecked(false)
+		f.layoutDiffs()
 	end)
 	dungeonCB:SetScript("OnClick", function()
 		dungeonCB:SetChecked(true)
 		raidCB:SetChecked(false)
+		f.layoutDiffs()
 	end)
 	raidCB:SetChecked(true)
 	f.raidCB, f.dungeonCB = raidCB, dungeonCB
@@ -429,7 +431,7 @@ local function CreateUI()
 		{ label = "Normal", word = "normal" },
 		{ label = "Heroic", word = "heroic" },
 		{ label = "Mythic", word = "mythic" },
-		{ label = "M+", word = "keystone" },
+		{ label = "M+", word = "keystone", dungeonOnly = true },
 	}
 	f.diffCBs = {}
 	local prevDiff
@@ -451,6 +453,34 @@ local function CreateUI()
 		f.diffCBs[i] = cb
 		prevDiff = cb
 	end
+
+	-- Mythic+ is a dungeon difficulty and has no raid equivalent (there is no
+	-- keystone raid activity at all), so the option is hidden while Raids is
+	-- selected rather than offered and then matching nothing. Normal, Heroic
+	-- and Mythic exist in both sections and always show. The label is a child
+	-- of the panel rather than the checkbox, so it has to be hidden alongside.
+	local function layoutDiffs()
+		local prev
+		for i, cb in ipairs(f.diffCBs) do
+			local usable = not DIFFS[i].dungeonOnly or dungeonCB:GetChecked()
+			if not usable then
+				cb:SetChecked(false)
+			end
+			cb:SetShown(usable)
+			cb.label:SetShown(usable)
+			if usable then
+				cb:ClearAllPoints()
+				if prev then
+					cb:SetPoint("LEFT", prev.label, "RIGHT", 10, 0)
+				else
+					cb:SetPoint("TOPLEFT", raidCB, "BOTTOMLEFT", 0, -2)
+				end
+				prev = cb
+			end
+		end
+	end
+	f.layoutDiffs = layoutDiffs
+	layoutDiffs()
 
 	f.roleCBs = {}
 	local anchor
@@ -504,6 +534,7 @@ local function CreateUI()
 		for _, cb in ipairs(f.diffCBs) do
 			cb:SetChecked(false)
 		end
+		layoutDiffs()
 		resetRoleChecks()
 		Refresh()
 	end
