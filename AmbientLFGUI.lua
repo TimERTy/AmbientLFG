@@ -379,7 +379,7 @@ local function CreateUI()
 		return set
 	end
 
-	f.raidAutoCB = MakeCheckbox(f, "Raids: use my current spec's role", function(checked)
+	f.raidAutoCB = MakeCheckbox(f, "Raids: filter to my current spec's role", function(checked)
 		-- unticking pins exactly what is on screen, so it changes nothing until
 		-- a role is actually clicked
 		ns.SetRaidRoles(not checked and pinnedRaidRoles() or nil)
