@@ -111,9 +111,14 @@ end
 -- Two settings for one thing can disagree, and a disagreement (its Tank, our
 -- DPS) matches nothing while looking exactly like the addon being broken.
 --
--- Blizzard applies this filter to Dungeons only; it drops it for every other
--- category. Re-checking it here is what makes it work for raids too.
+-- Blizzard sends this filter with Dungeons searches only and drops it for every
+-- other category, so it does not apply outside Dungeons here either. A Tank
+-- tick left over from dungeons would otherwise quietly narrow a raid search by
+-- a setting the game itself is ignoring, with nothing on screen saying so.
 local function wantedRoles()
+	if not lastSearch or lastSearch[1] ~= Match.CATEGORY_DUNGEONS then
+		return {}
+	end
 	local f = C_LFGList.GetAdvancedFilter and C_LFGList.GetAdvancedFilter()
 	if type(f) ~= "table" then
 		return {}
@@ -998,6 +1003,9 @@ ns.GetWatchedSearch = watchedSearch
 ns.GetStats = function() return stats end
 ns.GetSearchBoxText = searchBoxText
 ns.GetWantedRoles = wantedRoles
+ns.RoleFilterApplies = function()
+	return lastSearch ~= nil and lastSearch[1] == Match.CATEGORY_DUNGEONS
+end
 ns.GetMatches = function() return matches end
 ns.BlockLeader = blockLeader
 ns.ResetAlerted = function() wipe(alerted); wipe(preexisting) end

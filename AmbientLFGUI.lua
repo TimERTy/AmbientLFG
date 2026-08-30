@@ -127,9 +127,16 @@ Refresh = function()
 			seats[#seats + 1] = CreateAtlasMarkup(ROLE_UI[role].atlas, 14, 14) .. " " .. ROLE_UI[role].label
 		end
 	end
-	ui.rolesText:SetText(#seats > 0
-		and ("Alerting on an open seat for |cffffd100%s|r — set in the Group Finder's Filter"):format(table.concat(seats, ", "))
-		or "Alerting on |cffffd100every group|r the search returns — tick a \"role available\" box in the Group Finder's Filter to narrow it")
+	if #seats > 0 then
+		ui.rolesText:SetText(("Alerting on an open seat for |cffffd100%s|r — set in the Group Finder's Filter"):format(
+			table.concat(seats, ", ")))
+	elseif ns.RoleFilterApplies() then
+		ui.rolesText:SetText("Alerting on |cffffd100every group|r the search returns — tick a \"role available\" box in the Group Finder's Filter to narrow it")
+	else
+		-- the Filter's role boxes go out with Dungeons searches only, so saying
+		-- "tick one to narrow it" here would be advice that does nothing
+		ui.rolesText:SetText("Alerting on |cffffd100every group|r the search returns — the Filter's \"role available\" boxes apply to Dungeons only, so the search box is the whole filter here")
+	end
 	if not ui.intervalBox:HasFocus() then
 		ui.intervalBox:SetText(tostring(db.interval))
 	end
