@@ -829,7 +829,13 @@ end
 local DIAG_LIMIT = 12
 local function diag()
 	local _, raw = C_LFGList.GetSearchResults()
-	local _, filtered = C_LFGList.GetFilteredSearchResults and C_LFGList.GetFilteredSearchResults()
+	-- guarded with an if, not `X and X()`: an `and` in a multiple assignment is
+	-- adjusted to one value, so the second return would always have been nil and
+	-- the count this whole command exists to print would have read -1
+	local filtered
+	if C_LFGList.GetFilteredSearchResults then
+		_, filtered = C_LFGList.GetFilteredSearchResults()
+	end
 	local rawN = type(raw) == "table" and #raw or -1
 	local filtN = type(filtered) == "table" and #filtered or -1
 	local box = searchBoxText()
