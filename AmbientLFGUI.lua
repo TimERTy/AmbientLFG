@@ -195,6 +195,9 @@ Refresh = function()
 		ui.statusText:SetText("|cffff6666Alerts disabled|r" .. heartbeat)
 	elseif db.auto and not ns.IsArmed() then
 		ui.statusText:SetText("|cffffcc00Auto-search idle — fill in the Group Finder's search box and search once to arm it|r" .. heartbeat)
+	elseif db.auto and stats.browsing then
+		-- silence here reads as the addon being broken; it is deliberate
+		ui.statusText:SetText("|cffffcc00Paused while the Group Finder is open|r — searching now would stomp the results you're looking at" .. heartbeat)
 	elseif db.auto and stats.suspended then
 		ui.statusText:SetText("|cffff6666Auto-search suspended — searches keep failing (Group Finder not usable right now?). Toggle auto-search to retry.|r" .. heartbeat)
 	elseif db.auto and stats.backoffUntil and GetTime() < stats.backoffUntil then
@@ -357,8 +360,15 @@ local function CreateUI()
 	f.watchText:SetJustifyH("LEFT")
 	f.watchText:SetWordWrap(true)
 
+	-- setting the search up is the one thing the player must do in Blizzard's
+	-- own window, so the addon offers the door rather than describing it
+	f.openGF = MakeButton(f, "Open Group Finder", 150, function()
+		PVEFrame_ShowFrame("GroupFinderFrame", "LFGListPVEStub")
+	end)
+	f.openGF:SetPoint("TOPLEFT", f.watchText, "BOTTOMLEFT", 0, -8)
+
 	local listHeader = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	listHeader:SetPoint("TOPLEFT", f.watchText, "BOTTOMLEFT", 0, -8)
+	listHeader:SetPoint("TOPLEFT", f.openGF, "BOTTOMLEFT", 0, -8)
 	listHeader:SetText("Current matches")
 	listHeader:SetTextColor(0.7, 0.7, 0.7)
 

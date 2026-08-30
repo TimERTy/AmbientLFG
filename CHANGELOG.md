@@ -11,11 +11,15 @@ The reason is that rule words could never do this job. Since 12.0 a listing's ti
 - The window names the search it is watching, so the filter that decides everything is never invisible state.
 - Auto-search does nothing until you have run a search yourself, and says so, instead of quietly inventing one that approximated the panel's filters and could not carry the search box at all.
 - `/alfg roles tank dps` (or `any`) replaces `/alfg add`, `del` and `clear`.
+- A group you have already been alerted about stays quiet across a `/reload` and a relog. The "already seen" list used to live only in memory, so every reload re-alerted everything you had dismissed. Entries expire after six hours, so the same leader listing again tomorrow is genuinely new.
 - The groups already listed when watching starts no longer alert. A login, a `/reload`, or changing your search used to fire on every listing the search returned at once; those are the board as you'd see it, not news, so alerting begins with the next group to appear. `/alfg reset` still makes them all alert again.
 - Changing your search clears the matches list immediately instead of leaving the previous search's groups sitting in it until they aged out.
 - The window is titled "AmbientLFG" rather than "Premade Alert".
 - Fix: a listing that was not in the current search's results could alert anyway — a `+8` while you were watching `16-16`. The game reports updates for every listing it is still tracking, including leftovers from an earlier, wider search, and those updates were being treated as matches.
 - An empty search box is no longer watched at all. It is not a filter, it is every group in the category, so it would alert on the whole board and keep alerting as the board churns.
+- An "Open Group Finder" button in the window, since setting the search up is the one thing that has to happen in Blizzard's window.
+- The window now says when auto-search is paused because the Group Finder is open. It always stood down while you browse — searching then stomps the results you are reading — but it said nothing, which looked identical to being broken.
+- Fix: the search box is only readable while the Group Finder is open, so the text is remembered from the last search you ran. Reading it with the window shut reported an empty box.
 - The "Flash taskbar" option is gone; it always flashes. Flashing does nothing while WoW has focus, so the only player it can reach is the alt-tabbed one it was meant for.
 - Fix: the roles on a rule were required all at once. Ticking Tank, Healer and DPS asked for a group with every role still open — an empty group — so it matched nothing and looked simply broken.
 - Clicking a checkbox's label toggles it, instead of only the box itself.

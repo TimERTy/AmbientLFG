@@ -29,11 +29,15 @@ local scanPending = false
 local backoffUntil = 0
 local consecutiveFailures = 0
 local suspended = false
-local alerted = {}
+-- how long a group stays "already seen"; long enough to cover a play session
+-- and a few reloads, short enough that the same leader listing tomorrow alerts
+local ALERT_MEMORY = 6 * 60 * 60
+local alerted = {} -- replaced by the SavedVariables table at login
 local activityNameCache = {}
 local stats = { autoIssued = 0 }
 local matches = {} -- currently-listed groups matching a rule, for the UI
 local lastSearch -- captured args from the most recent C_LFGList.Search call
+local boxText = "" -- the search box as of the last search the player ran
 -- A group already on the board when watching starts is not news. Without this
 -- a login, a /reload, or a change of search alerts on every listing the search
 -- returns at once. Those listings are recorded by resultID, not by leader,
@@ -330,7 +334,7 @@ local function confirmPending()
 			else
 				pendingConfirm[key] = nil
 				if not alerted[key] then
-					alerted[key] = true
+					alerted[key] = time()
 					hits[#hits + 1] = {
 						name = name ~= "" and name or leader,
 						leader = leader,
@@ -409,6 +413,7 @@ local function scanOne(resultID)
 		dps = counts and safeNum(counts.DAMAGER),
 	}
 	if preexisting[resultID] then
+		alerted[key] = alerted[key] or time()
 		return
 	end
 	if not alerted[key] and not pendingConfirm[key] then
@@ -491,12 +496,28 @@ local function searchBoxText()
 	return box and safeStr(box:GetText()) or ""
 end
 
+-- The filter itself is engine state and keeps applying to background searches,
+-- but the editbox is only readable while the panel is up: with the Group Finder
+-- closed it reads empty. So the text is remembered from the last search the
+-- player ran themselves, and a reading taken while the panel is down is not
+-- allowed to overwrite it — otherwise the addon's own replays would report an
+-- empty box and disarm it.
+local function rememberBoxText()
+	local panel = LFGListFrame and LFGListFrame.SearchPanel
+	if panel and panel:IsVisible() then
+		boxText = searchBoxText()
+		if db then
+			db.boxText = boxText
+		end
+	end
+end
+
 -- An empty search box is not a filter, it is every group in the category. It
 -- would alert on the whole board and keep alerting as the board churns, which
 -- is indistinguishable from the addon being broken. So an empty box counts as
 -- no search at all: nothing is watched until the player types one.
 local function armed()
-	return lastSearch ~= nil and searchBoxText() ~= ""
+	return lastSearch ~= nil and boxText ~= ""
 end
 
 local function scanResults()
@@ -617,7 +638,8 @@ local function autoSearch()
 	if not db.enabled or not db.auto or not lastSearch then
 		return
 	end
-	if suspended or GetTime() < backoffUntil or playerIsBrowsing() then
+	stats.browsing = playerIsBrowsing() or nil
+	if suspended or GetTime() < backoffUntil or stats.browsing then
 		return
 	end
 	-- the Group Finder isn't usable in battlegrounds/arenas; searching
@@ -716,13 +738,14 @@ local function searchSignature(args)
 	for i = 1, args.n do
 		add(args[i], 0)
 	end
-	parts[#parts + 1] = searchBoxText()
+	parts[#parts + 1] = boxText
 	return table.concat(parts, "\1")
 end
 
 hooksecurefunc(C_LFGList, "Search", function(...)
 	lastSearch = { n = select("#", ...), ... }
 	stats.lastAnySearchAt = GetTime()
+	rememberBoxText()
 	local sig = searchSignature(lastSearch)
 	if sig ~= primedFor then
 		primedFor = sig
@@ -752,6 +775,17 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 		end
 		db.keywords = nil -- pre-rule format, never shipped
 		db.flash = nil -- taskbar flashing is unconditional now
+		-- "Already seen" has to outlive a /reload, or every reload re-alerts
+		-- every group you'd dismissed. Entries expire so that a leader who
+		-- lists again tomorrow is genuinely new.
+		db.alerted = type(db.alerted) == "table" and db.alerted or {}
+		local cutoff = time() - ALERT_MEMORY
+		for key, at in pairs(db.alerted) do
+			if type(at) ~= "number" or at < cutoff then
+				db.alerted[key] = nil
+			end
+		end
+		alerted = db.alerted
 		-- Rule words could never see a keystone level: a listing's title
 		-- reaches an addon as an opaque token even when the group typed it.
 		-- The Group Finder's own search box can, so the search is the filter
@@ -767,6 +801,7 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 			end
 			msg("rules have been replaced by the search you run yourself — open the Group Finder, set up the search you want, run it once, and /alfg watches it.")
 		end
+		boxText = type(db.boxText) == "string" and db.boxText or ""
 		if type(db.lastSearch) == "table" and type(db.lastSearch.n) == "number" then
 			lastSearch = db.lastSearch
 		end
@@ -807,7 +842,7 @@ local function watchedSearch()
 	if not armed() then
 		return nil
 	end
-	return searchDescription(lastSearch[1], searchBoxText())
+	return searchDescription(lastSearch[1], boxText)
 end
 
 local function status()
@@ -861,7 +896,7 @@ local function diag()
 	-- search request, so the server has already applied it to both lists; what
 	-- the pair reports is whether the client dropped anything further. Whether
 	-- the box narrowed is answered by the key levels in the rows below.
-	msg(("diag: box=%q raw=%d filtered=%d"):format(searchBoxText(), rawN, filtN))
+	msg(("diag: box=%q (live %q) raw=%d filtered=%d"):format(boxText, searchBoxText(), rawN, filtN))
 	msg(("  watching: %s | seats wanted: %s"):format(watchedSearch() or "(nothing)", rolesToString(db.roles)))
 
 	local results = searchResults()
