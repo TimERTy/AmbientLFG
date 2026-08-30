@@ -162,6 +162,8 @@ Refresh = function()
 	local watching = ns.GetWatchedSearch()
 	ui.watchText:SetText(watching
 		and ("Watching |cffffd100%s|r"):format(watching)
+		or ns.CannotSearchReason()
+			and ("|cffffcc00Nothing to watch|r — %s"):format(ns.CannotSearchReason())
 		or "|cffffcc00Nothing to watch|r — type what you want in the Group Finder's search box (e.g. 14-14) and search once")
 
 	-- live list of currently-listed groups; the opaque title tokens render as
@@ -229,7 +231,12 @@ Refresh = function()
 	if not db.enabled then
 		ui.statusText:SetText("|cffff6666Off|r" .. heartbeat)
 	elseif not ns.IsArmed() then
-		ui.statusText:SetText("|cffffcc00Idle — fill in the Group Finder's search box and search once to arm it|r" .. heartbeat)
+		-- with a listing up the search panel is unreachable, so the usual
+		-- "search once to arm it" is an instruction that cannot be carried out
+		local blocked = ns.CannotSearchReason()
+		ui.statusText:SetText(blocked
+			and ("|cffffcc00Idle — %s|r"):format(blocked) .. heartbeat
+			or "|cffffcc00Idle — fill in the Group Finder's search box and search once to arm it|r" .. heartbeat)
 	elseif stats.browsing then
 		-- silence here reads as the addon being broken; it is deliberate
 		ui.statusText:SetText("|cffffcc00Paused while the Group Finder is open|r — searching now would stomp the results you're looking at" .. heartbeat)

@@ -859,6 +859,14 @@ local function watchedSearch()
 	return searchDescription(lastSearch[1], boxText)
 end
 
+-- Nil unless the game is currently refusing to show the search panel.
+local function cannotSearch()
+	if not (C_LFGList.HasActiveEntryInfo and C_LFGList.HasActiveEntryInfo()) then
+		return nil
+	end
+	return Match.listedBlockText(UnitIsGroupLeader and UnitIsGroupLeader("player") or false)
+end
+
 local function status()
 	msg(("v%s | %s (searching every %ds)"):format(
 		(C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)(ADDON_NAME, "Version") or "?",
@@ -867,6 +875,7 @@ local function status()
 	local watching = watchedSearch()
 	msg(watching
 		and ("watching: %s"):format(watching)
+		or cannotSearch()
 		or "nothing to watch — open the Group Finder, set up the search you want, and run it once")
 	msg("alerting when there is an open seat for: " .. rolesToString(wantedRoles())
 		.. (ns.WatchingDungeons() and " (set in the Group Finder's Filter)"
@@ -1017,6 +1026,7 @@ ns.restartTicker = restartTicker
 ns.GetDB = function() return db end
 ns.IsArmed = armed
 ns.GetWatchedSearch = watchedSearch
+ns.CannotSearchReason = cannotSearch
 ns.GetStats = function() return stats end
 ns.GetSearchBoxText = searchBoxText
 ns.GetWantedRoles = wantedRoles

@@ -238,4 +238,16 @@ function Match.searchDescription(categoryID, boxText)
 	return where
 end
 
+-- While your own listing is up the Group Finder shows your applicants and the
+-- search panel is unreachable, so "run a search once to arm it" is advice that
+-- cannot be followed and reads as the addon being broken. The game puts a
+-- Browse Groups button in that view for a party leader and for nobody else, so
+-- everyone else has to take the listing down first.
+function Match.listedBlockText(isLeader)
+	if isLeader then
+		return "your group is listed, so the Group Finder opens on your applicants — click \"Browse Groups\" there to reach the search"
+	end
+	return "your listing is up, so the Group Finder shows applicants instead of the search — it comes back when the listing is taken down"
+end
+
 return Match
