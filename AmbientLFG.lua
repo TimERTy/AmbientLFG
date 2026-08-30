@@ -101,15 +101,23 @@ local function ruleMatches(rule, haystack, resultID, info, categoryID, maxPlayer
 			return false
 		end
 	end
+	-- Roles are either/or, not all-of: ticking Tank and Healer says which
+	-- roles you can play, and a group needing every role at once is an empty
+	-- group. Requiring all of them matched nothing and looked like no bug.
 	if #rule.roles > 0 then
 		local counts = C_LFGList.GetSearchResultMemberCounts(resultID)
 		if type(counts) ~= "table" then
 			return false
 		end
+		local anyOpen = false
 		for _, role in ipairs(rule.roles) do
-			if not roleIsOpen(role, counts, safeNum(info.numMembers), categoryID, maxPlayers) then
-				return false
+			if roleIsOpen(role, counts, safeNum(info.numMembers), categoryID, maxPlayers) then
+				anyOpen = true
+				break
 			end
+		end
+		if not anyOpen then
+			return false
 		end
 	end
 	return true
@@ -456,8 +464,34 @@ local function startScan(list, isFull)
 	end
 end
 
-local function scanResults()
+-- Blizzard's own panel reads GetFilteredSearchResults, not GetSearchResults.
+-- The engine applies the Group Finder's search box to it — and for keystones
+-- that box is a key-RANGE filter evaluated against the real key level, not a
+-- text match on the title. Titles reach addons as unreadable tokens, so this
+-- is the only way a key level can be filtered at all. The text lives in
+-- engine state keyed to the secure search box, so it survives the window
+-- being closed and applies to searches the addon issues itself.
+local function searchResults()
+	if C_LFGList.GetFilteredSearchResults then
+		local _, filtered = C_LFGList.GetFilteredSearchResults()
+		if type(filtered) == "table" then
+			return filtered
+		end
+	end
 	local _, results = C_LFGList.GetSearchResults()
+	return results
+end
+
+-- Readable even though the box refuses SetText from addons: the security
+-- attribute blocks writes only.
+local function searchBoxText()
+	local panel = LFGListFrame and LFGListFrame.SearchPanel
+	local box = panel and panel.SearchBox
+	return box and safeStr(box:GetText()) or ""
+end
+
+local function scanResults()
+	local results = searchResults()
 	if type(results) ~= "table" then
 		return
 	end
@@ -791,15 +825,16 @@ end
 
 local DIAG_LIMIT = 25
 local function diag()
-	local count, results, totalResults = C_LFGList.GetSearchResults()
+	local _, raw = C_LFGList.GetSearchResults()
+	local results = searchResults()
 	if type(results) ~= "table" then
 		msg("diag: no search results yet — search once in the Group Finder first")
 		return
 	end
 	local dump = {
 		at = date("%Y-%m-%d %H:%M:%S"),
-		firstReturn = safeNum(count),
-		thirdReturn = safeNum(totalResults),
+		boxText = searchBoxText(),
+		rawCount = type(raw) == "table" and #raw or -1,
 		returned = #results,
 		rules = {},
 		listings = {},
@@ -826,6 +861,13 @@ local function diag()
 				haystack = haystack,
 				misses = {},
 			}
+			local counts = C_LFGList.GetSearchResultMemberCounts(resultID)
+			if type(counts) == "table" then
+				entry.members = safeNum(info.numMembers)
+				entry.tanks = safeNum(counts.TANK)
+				entry.healers = safeNum(counts.HEALER)
+				entry.dps = safeNum(counts.DAMAGER)
+			end
 			for _, rule in ipairs(db.rules) do
 				for _, word in ipairs(rule.words) do
 					if not wordMatches(haystack, word) then
@@ -934,6 +976,7 @@ ns.restartTicker = restartTicker
 ns.GetDB = function() return db end
 ns.IsArmed = function() return lastSearch ~= nil or (db ~= nil and #db.rules > 0) end
 ns.GetStats = function() return stats end
+ns.GetSearchBoxText = searchBoxText
 ns.GetMatches = function() return matches end
 ns.BlockLeader = blockLeader
 ns.ResetAlerted = function() wipe(alerted) end

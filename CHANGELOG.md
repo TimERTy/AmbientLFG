@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.7
+- Fix: the roles on a rule were required all at once. Ticking Tank, Healer and DPS asked for a group with every role still open — an empty group — so the rule matched nothing and looked simply broken. Roles are either/or now: they say which roles you can fill.
+- Keystone levels are filtered by the Group Finder's own search box instead of by matching the listing's title. A group's title reaches addons as an unreadable token, so `+14` as a rule word could never have worked; typing `14` (or a range like `12-14`) into Blizzard's search box filters on the real key level, and that filter keeps applying to the addon's background searches after you close the window. The settings window shows the filter when one is set, since it silently narrows everything.
+
 ## 0.3.6
 - Difficulty is checkboxes again — several can apply. Picking Normal and Heroic now means either, not both at once, which matched nothing. Raids still require at least one.
 - Clicking a checkbox's label toggles it, instead of only the box itself.

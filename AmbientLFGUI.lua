@@ -240,6 +240,13 @@ Refresh = function()
 	if stats.autoIssued > 0 then
 		heartbeat = heartbeat .. (" | %d auto-searches"):format(stats.autoIssued)
 	end
+	-- The Group Finder's own search box narrows every result the addon sees,
+	-- including background searches, and it keeps doing so with the window
+	-- shut. Left unsaid that is invisible state that looks like a broken rule.
+	local boxText = ns.GetSearchBoxText()
+	if boxText ~= "" then
+		heartbeat = heartbeat .. ("\n|cff88ccffGroup Finder filter \"%s\" is also applied|r"):format(boxText)
+	end
 	if not db.enabled then
 		ui.statusText:SetText("|cffff6666Alerts disabled|r" .. heartbeat)
 	elseif db.auto and not ns.IsArmed() then
