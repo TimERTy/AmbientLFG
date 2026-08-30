@@ -838,10 +838,11 @@ local function diag()
 	end
 	local rawN = type(raw) == "table" and #raw or -1
 	local filtN = type(filtered) == "table" and #filtered or -1
-	local box = searchBoxText()
-	msg(("diag: box=%q raw=%d filtered=%d%s"):format(
-		box, rawN, filtN,
-		(filtN >= 0 and rawN == filtN and box ~= "") and "  <- box is NOT narrowing" or ""))
+	-- Equal counts say nothing about the search box. The box is part of the
+	-- search request, so the server has already applied it to both lists; what
+	-- the pair reports is whether the client dropped anything further. Whether
+	-- the box narrowed is answered by the key levels in the rows below.
+	msg(("diag: box=%q raw=%d filtered=%d"):format(searchBoxText(), rawN, filtN))
 	for i, rule in ipairs(db.rules) do
 		msg(("  rule %d: %s"):format(i, ruleToString(rule)))
 	end
