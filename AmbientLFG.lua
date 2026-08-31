@@ -2,6 +2,14 @@ local ADDON_NAME, ns = ...
 
 local defaults = {
 	enabled = true,
+	-- Blizzard's search box decides WHICH listings arrive; these decide
+	-- which of those are worth being told about.
+	oceOnly = false,
+	improveOnly = false,
+	minGain = 1,
+	-- "both" | "title" | "leader": where an estimated key level may come
+	-- from. A readable title is rare; the leader estimate carries it.
+	keySource = "both",
 	ignores = { "wts", "sell", "boost", "carry" },
 	sound = true,
 	interval = 10,
@@ -53,12 +61,25 @@ local function msg(text)
 	print("|cff33ff99AmbientLFG|r: " .. text)
 end
 
+-- Names that identify no instance on their own. "Mythic+" is the shortName
+-- of EVERY keystone dungeon, so a row showing it names nothing.
+local USELESS_SHORT_NAMES = {}
+for _, name in ipairs({
+	"mythic", "heroic", "normal", "mythic keystone", "mythic+", "m+",
+	"lfr", "raid finder",
+}) do
+	USELESS_SHORT_NAMES[name] = true
+end
+
 local function activityData(info)
 	local ids = info.activityIDs
 	if type(ids) ~= "table" then
 		ids = { info.activityID }
 	end
 	local names, categoryID, maxPlayers, display = "", nil, nil, nil
+	-- mapID and fullName feed the M+ score lookup, which needs to know
+	-- WHICH dungeon a listing is for, not just what to print
+	local mapID, actFullName = nil, nil
 	for _, id in ipairs(ids) do
 		if type(id) == "number" and not (issecretvalue and issecretvalue(id)) then
 			local cached = activityNameCache[id]
@@ -66,14 +87,13 @@ local function activityData(info)
 				local actInfo = C_LFGList.GetActivityInfoTable(id)
 				local fullName = actInfo and safeStr(actInfo.fullName) or ""
 				local shortName = actInfo and safeStr(actInfo.shortName) or ""
-				-- an activity is one instance at one difficulty, never a
-				-- single boss; for raids the shortName is JUST the difficulty
-				-- ("Mythic") — worthless alone, so fall back to the full name
-				local shortLower = shortName:lower()
+				-- An activity is one instance at one difficulty, never a
+				-- single boss. The shortName is often JUST the difficulty —
+				-- "Mythic" for raid bosses, and "Mythic+" for every keystone
+				-- dungeon alike — which names no dungeon at all. Fall back
+				-- to the full name, which carries it.
 				local displayName = shortName
-				if displayName == "" or shortLower == "mythic" or shortLower == "heroic"
-					or shortLower == "normal" or shortLower == "mythic keystone"
-					or shortLower == "lfr" or shortLower == "raid finder" then
+				if displayName == "" or USELESS_SHORT_NAMES[shortName:lower()] then
 					displayName = fullName
 				end
 				-- the short name drops the difficulty; recover it from the
@@ -90,9 +110,11 @@ local function activityData(info)
 				end
 				cached = {
 					name = fullName:lower(),
+					fullName = fullName,
 					display = displayName,
 					categoryID = actInfo and safeNum(actInfo.categoryID),
 					maxPlayers = actInfo and safeNum(actInfo.maxNumPlayers),
+					mapID = actInfo and safeNum(actInfo.mapID),
 				}
 				activityNameCache[id] = cached
 			end
@@ -102,9 +124,11 @@ local function activityData(info)
 			if not display and cached.display ~= "" then
 				display = cached.display
 			end
+			mapID = mapID or cached.mapID
+			actFullName = actFullName or cached.fullName
 		end
 	end
-	return names, categoryID, maxPlayers, display
+	return names, categoryID, maxPlayers, display, mapID, actFullName
 end
 
 -- Which seats you can take is Blizzard's own Filter setting — "Tank role
@@ -185,12 +209,181 @@ local function listingIdentity(info)
 end
 
 local function listingHaystack(info, name, leader)
-	local actNames, categoryID, maxPlayers, actDisplay = activityData(info)
+	local actNames, categoryID, maxPlayers, actDisplay, mapID, actFullName =
+		activityData(info)
 	local comment = safeStr(info.comment)
 	local haystack = normalizeText(
 		matchableText(name) .. " " .. matchableText(comment) .. " " .. leader
 	):lower() .. actNames
-	return haystack, categoryID, maxPlayers, comment, actDisplay
+	return haystack, categoryID, maxPlayers, comment, actDisplay, mapID, actFullName
+end
+
+local function playerRealm()
+	return (GetNormalizedRealmName and GetNormalizedRealmName())
+		or (GetRealmName and GetRealmName()) or ""
+end
+
+--------------------------------------------------------------------------------
+-- Mythic+ score improvement
+--
+-- "Would this key raise my score for this dungeon?" needs three things, and
+-- 12.1 exposes all three:
+--   * which dungeon the listing is for — the activity's mapID
+--   * my score and best timed level there — the challenge-mode APIs, which
+--     are keyed by mapChallengeModeID, a DIFFERENT id space from mapID
+--   * what the listed key is — Match.keyLevelFor (an estimate; the exact
+--     level is only ever known to Blizzard's own search box)
+-- GetMapUIInfo hands back the mapID for a mapChallengeModeID and is the only
+-- bridge between those two id spaces, so the table is built from it once.
+--------------------------------------------------------------------------------
+local challengeMapByMapID, challengeMapByName
+local function buildChallengeMaps()
+	if challengeMapByMapID then
+		return
+	end
+	challengeMapByMapID, challengeMapByName = {}, {}
+	local maps = C_ChallengeMode and C_ChallengeMode.GetMapTable
+		and C_ChallengeMode.GetMapTable()
+	for _, id in ipairs(maps or {}) do
+		local mapName, _, _, _, _, uiMapID = C_ChallengeMode.GetMapUIInfo(id)
+		if uiMapID then
+			challengeMapByMapID[uiMapID] = id
+		end
+		if mapName and mapName ~= "" then
+			challengeMapByName[mapName:lower()] = id
+		end
+	end
+end
+
+-- Nothing documents whether an activity's mapID and the mapID GetMapUIInfo
+-- returns are the same id space, and if they are not, the id lookup silently
+-- matches nothing. The dungeon name is kept as a second bridge: an activity is
+-- named "Voidscar Arena (Mythic Keystone)" and the challenge map is "Voidscar
+-- Arena", so containment settles it. /alfg maps shows which one is carrying it.
+local function challengeMapFor(mapID, activityName)
+	buildChallengeMaps()
+	local byID = challengeMapByMapID[mapID or -1]
+	if byID then
+		return byID, "mapID"
+	end
+	local name = (activityName or ""):lower()
+	if name ~= "" then
+		for mapName, id in pairs(challengeMapByName) do
+			if name:find(mapName, 1, true) then
+				return id, "name"
+			end
+		end
+	end
+end
+
+-- Your score for one dungeon, and the highest level you have timed there.
+-- The level is the reliable half: a timed key above it scores better than what
+-- you have, whatever this season's numbers happen to be.
+local dungeonBestCache, dungeonBestAt = {}, 0
+local function dungeonBest(challengeMapID)
+	-- runs for every listing of every scan, so it is cached; a new run
+	-- of your own is the only thing that changes it, and 60s is well
+	-- inside one dungeon
+	if GetTime() - dungeonBestAt > 60 then
+		dungeonBestCache, dungeonBestAt = {}, GetTime()
+	end
+	local hit = dungeonBestCache[challengeMapID]
+	if hit then
+		return hit[1], hit[2]
+	end
+	local score, timedLevel
+	if C_MythicPlus.GetSeasonBestAffixScoreInfoForMap then
+		local _, best = C_MythicPlus.GetSeasonBestAffixScoreInfoForMap(challengeMapID)
+		score = tonumber(best)
+	end
+	if C_MythicPlus.GetSeasonBestForMap then
+		local intime = C_MythicPlus.GetSeasonBestForMap(challengeMapID)
+		if type(intime) == "table" then
+			timedLevel = tonumber(intime.level)
+			score = score or tonumber(intime.dungeonScore)
+		end
+	end
+	score, timedLevel = score or 0, timedLevel or 0
+	dungeonBestCache[challengeMapID] = { score, timedLevel }
+	return score, timedLevel
+end
+
+-- No API answers "what is a +N worth", and Blizzard retunes it between seasons,
+-- so the answer is measured rather than hardcoded: every run in your own
+-- history is a (level, score) sample. The best score seen at a level wins,
+-- which picks the timed run when you have both. Two levels pin the line; with
+-- fewer there is no projection, and only the level test applies.
+local scoreCurve, scoreCurveAt = nil, 0
+local function levelScoreCurve()
+	if scoreCurve and GetTime() - scoreCurveAt < 60 then
+		return scoreCurve
+	end
+	local points, n = {}, 0
+	local runs = C_MythicPlus.GetRunHistory
+		and C_MythicPlus.GetRunHistory(true, false, true)
+	for _, run in ipairs(runs or {}) do
+		local level, score = tonumber(run.level), tonumber(run.runScore)
+		if level and score and score > 0 then
+			if not points[level] then
+				n = n + 1
+			end
+			if not points[level] or score > points[level] then
+				points[level] = score
+			end
+		end
+	end
+	local curve = { points = points, samples = n }
+	local sx, sy, sxx, sxy = 0, 0, 0, 0
+	for level, score in pairs(points) do
+		sx, sy = sx + level, sy + score
+		sxx, sxy = sxx + level * level, sxy + level * score
+	end
+	local denom = n * sxx - sx * sx
+	if n >= 2 and denom ~= 0 then
+		curve.slope = (n * sxy - sx * sy) / denom
+		curve.base = (sy - curve.slope * sx) / n
+	end
+	scoreCurve, scoreCurveAt = curve, GetTime()
+	return curve
+end
+
+local function scoreForLevel(level)
+	local curve = levelScoreCurve()
+	if curve.points[level] then
+		return curve.points[level], "measured"
+	end
+	if curve.slope then
+		return curve.base + curve.slope * level, "projected"
+	end
+end
+
+-- nil means "not a keystone dungeon", which is a different answer from "a
+-- keystone whose level I could not read": the first disqualifies an improve
+-- filter outright, the second is left to the caller to decide.
+local function improvementFor(info, title, mapID, activityName)
+	local challengeMapID, bridge = challengeMapFor(mapID, activityName)
+	if not challengeMapID then
+		return nil
+	end
+	local current, timedLevel = dungeonBest(challengeMapID)
+	local level, levelSource = Match.keyLevelFor(info, title, activityName,
+		db and db.keySource)
+	local projected, projectionSource
+	if level then
+		projected, projectionSource = scoreForLevel(level)
+	end
+	return {
+		level = level,
+		levelSource = levelSource,
+		bridge = bridge,
+		current = current,
+		bestTimedLevel = timedLevel,
+		projected = projected,
+		projectionSource = projectionSource,
+		gain = projected and (projected - current) or nil,
+		-- the claim that needs no season numbers to stand up
+		beatsBest = level ~= nil and level > timedLevel,
+	}
 end
 
 -- Seller ads are auto-learned: comments are opaque kstring tokens, but
@@ -289,6 +482,196 @@ local function blockLeader(leader)
 	db.blockedLeaders[leader] = true
 	purgeMatches(leader)
 	msg(("blocked %s — their groups will never alert"):format(leader))
+end
+
+-- GetApplicationInfo(resultID) -> id, appStatus, pendingStatus, appDuration.
+-- pendingStatus is set while a change is in flight and wins over the settled
+-- status. "none" means never applied.
+local APPLICATION_LABELS = {
+	applied = { text = "Applied", color = "ff66ff66" },
+	invited = { text = "Invited!", color = "ffffd100" },
+	inviteaccepted = { text = "Accepted", color = "ff66ff66" },
+	invitedeclined = { text = "You declined", color = "ff999999" },
+	declined = { text = "Declined", color = "ffff6666" },
+	declined_full = { text = "Full", color = "ffff6666" },
+	declined_delisted = { text = "Delisted", color = "ffff6666" },
+	timedout = { text = "Timed out", color = "ffff9933" },
+	cancelled = { text = "Withdrawn", color = "ff999999" },
+	failed = { text = "Failed", color = "ffff6666" },
+}
+
+local function applicationStatus(resultID)
+	if type(resultID) ~= "number" or not C_LFGList.GetApplicationInfo then
+		return nil
+	end
+	local ok, _, appStatus, pendingStatus = pcall(C_LFGList.GetApplicationInfo, resultID)
+	if not ok then
+		return nil
+	end
+	local st = pendingStatus
+	if not st or st == "none" then
+		st = appStatus
+	end
+	if not st or st == "none" then
+		return nil
+	end
+	local label = APPLICATION_LABELS[st]
+	local active = st == "applied" or st == "invited" or st == "inviteaccepted"
+	return st, label and label.text or st, label and label.color or "ffffffff", active
+end
+
+-- C_LFGList.ApplyToGroup is hardware-event protected exactly like Search, so
+-- these only work called straight from a button's OnClick. From a timer or an
+-- event handler they are blocked the same way auto-search was.
+local function applyToMatch(resultID, leader)
+	if type(resultID) ~= "number" then
+		msg("that listing isn't loaded any more — search again")
+		return
+	end
+	local info = C_LFGList.GetSearchResultInfo(resultID)
+	if not info or safeBool(info.isDelisted) then
+		msg("that group is no longer listed")
+		return
+	end
+	local spec = GetSpecialization and GetSpecialization()
+	local role = spec and GetSpecializationRole and GetSpecializationRole(spec)
+	-- undocumented signature; the 4-arg form first, bare resultID as fallback
+	local ok = pcall(C_LFGList.ApplyToGroup, resultID,
+		role == "TANK", role == "HEALER", role == "DAMAGER")
+	if not ok then
+		ok = pcall(C_LFGList.ApplyToGroup, resultID)
+	end
+	msg(ok
+		and ("applying to %s as %s..."):format(leader or "that group", Match.ROLE_LABEL[role] or "?")
+		or "sign-up was rejected — open the Group Finder and apply there")
+end
+
+local function cancelApplication(resultID, leader)
+	if type(resultID) ~= "number" or not C_LFGList.CancelApplication then
+		return
+	end
+	msg(pcall(C_LFGList.CancelApplication, resultID)
+		and ("withdrew from %s's group"):format(leader or "that group")
+		or "could not withdraw — use the Group Finder's Applications tab")
+end
+
+local function findButtonByText(parent, text)
+	if not parent or not parent.GetChildren or not text then
+		return nil
+	end
+	for _, child in ipairs({ parent:GetChildren() }) do
+		if child.IsObjectType and child:IsObjectType("Button")
+			and child.GetText and child:GetText() == text then
+			return child
+		end
+	end
+end
+
+-- Ends in C_LFGList.Search, so it is hardware-event protected and must be
+-- called inline from the click. It also runs a fresh search, which renumbers
+-- every resultID — no specific listing can be selected afterwards.
+local function startFindGroup(categoryID, leader)
+	local selection = LFGListFrame and LFGListFrame.CategorySelection
+	if not selection or not categoryID then
+		return false
+	end
+	if LFGListCategorySelection_SelectCategory then
+		pcall(LFGListCategorySelection_SelectCategory, selection, categoryID, 0)
+	end
+	-- the 12.1 name is StartFindGroup; StartSearch does not exist
+	local ok = false
+	if LFGListCategorySelection_StartFindGroup then
+		ok = pcall(LFGListCategorySelection_StartFindGroup, selection)
+	end
+	if not ok then
+		local find = findButtonByText(selection, LFG_LIST_FIND_A_GROUP or "Find a Group")
+		if find then
+			ok = pcall(find.Click, find)
+		end
+	end
+	if ok and leader and leader ~= "" then
+		msg(("searching — look for %s in the list"):format(leader))
+	end
+	return ok
+end
+
+local function focusSearchPanel(resultID, leader)
+	local panel = LFGListFrame and LFGListFrame.SearchPanel
+	if not panel then
+		return
+	end
+	local info = type(resultID) == "number" and C_LFGList.GetSearchResultInfo(resultID)
+	local categoryID = info and select(2, activityData(info))
+
+	-- LFGListFrame_IsPanelValid rejects the SearchPanel unless
+	-- SearchPanel.preferredFilters == LFGListFrame.baseFilters, and an invalid
+	-- panel is swapped back to the category picker by FixPanelValid on the
+	-- next OnShow. preferredFilters is SetCategory's FOURTH argument and
+	-- silently becomes 0 when omitted — which is what bounced the window back.
+	local baseFilters = LFGListFrame.baseFilters or 0
+	if categoryID and panel.categoryID ~= categoryID and LFGListSearchPanel_SetCategory then
+		pcall(LFGListSearchPanel_SetCategory, panel, categoryID, panel.filters or 0, baseFilters)
+	end
+	panel.preferredFilters = baseFilters
+
+	if LFGListFrame_SetActivePanel then
+		pcall(LFGListFrame_SetActivePanel, LFGListFrame, panel)
+	end
+
+	-- Pull current results into the panel BEFORE judging whether it has any:
+	-- totalResults only counts what the panel already ingested, so checking
+	-- first reads 0 on a freshly-opened window and triggers a needless search
+	-- — and a search renumbers every resultID, destroying the one to select.
+	if LFGListSearchPanel_UpdateResultList then
+		pcall(LFGListSearchPanel_UpdateResultList, panel)
+	end
+	if LFGListSearchPanel_UpdateResults then
+		pcall(LFGListSearchPanel_UpdateResults, panel)
+	end
+	if (panel.totalResults or 0) == 0 then
+		msg("no listings loaded — press Find a Group")
+		return
+	end
+	if LFGListSearchPanel_SelectResult then
+		pcall(LFGListSearchPanel_SelectResult, panel, resultID)
+	end
+	if panel.selectedResult ~= resultID and leader and leader ~= "" then
+		msg(("look for %s in the list"):format(leader))
+	end
+end
+
+local function showInGroupFinder(resultID, leader)
+	if C_AddOns and C_AddOns.LoadAddOn then
+		pcall(C_AddOns.LoadAddOn, "Blizzard_GroupFinder")
+	end
+	-- "GroupFinderFrame" alone lands on the Dungeon Finder tab; Premade Groups
+	-- is the LFGListPVEStub sub-frame. Pass false, not true: OpenBestWindow
+	-- (true) uses PVEFrame_ToggleFrame, which CLOSES an already-open window.
+	local opened = false
+	if LFGListUtil_OpenBestWindow then
+		opened = pcall(LFGListUtil_OpenBestWindow, false)
+	end
+	if not opened and PVEFrame_ShowFrame then
+		opened = pcall(PVEFrame_ShowFrame, "GroupFinderFrame", LFGListPVEStub)
+	end
+	if not opened and GroupFinderFrame_ShowGroupFrame then
+		pcall(GroupFinderFrame_ShowGroupFrame, LFGListPVEStub)
+	end
+
+	-- Decide inline whether a fresh search is needed: this call still carries
+	-- the hardware event, a timer callback would not.
+	local _, results = C_LFGList.GetSearchResults()
+	if type(results) ~= "table" or #results == 0 then
+		local info = type(resultID) == "number" and C_LFGList.GetSearchResultInfo(resultID)
+		startFindGroup(info and select(2, activityData(info)), leader)
+		return
+	end
+	-- Nothing below is protected. Showing the window fires its OnShow, which
+	-- puts it back on the category picker, so the panel work has to happen a
+	-- frame later or it is simply overwritten.
+	C_Timer.After(0, function()
+		focusSearchPanel(resultID, leader)
+	end)
 end
 
 local lastSoundAt = 0
@@ -444,8 +827,12 @@ local function scanOne(resultID)
 	if Match.isOwnListing(info.hasSelf, leader, ownGroupNames()) then
 		return
 	end
-	local haystack, categoryID, maxPlayers, comment, actDisplay = listingHaystack(info, name, leader)
+	local haystack, categoryID, maxPlayers, comment, actDisplay, mapID, actFullName =
+		listingHaystack(info, name, leader)
 	recordAdToken(comment, leader)
+	if db.oceOnly and not Match.leaderIsOCE(leader, playerRealm()) then
+		return
+	end
 	if not rolesOpen(resultID, info, categoryID, maxPlayers) then
 		return
 	end
@@ -457,6 +844,24 @@ local function scanOne(resultID)
 	-- leaderName can stream as "Name" first and "Name-Realm" later; key on the
 	-- realm-stripped name so the same group can't re-alert when the format
 	-- flips. One group is one entry now that there is nothing else to key on.
+	-- Worked out once here rather than in the UI: the row wants it for
+	-- display and the improve filter wants it for the decision, and
+	-- doing it twice invites the two disagreeing.
+	local improvement = improvementFor(info, name, mapID, actFullName)
+	if db.improveOnly then
+		if not improvement or not improvement.level then
+			-- not a keystone, or no level to price it with
+			return
+		end
+		if improvement.gain then
+			if improvement.gain < (db.minGain or 1) then
+				return
+			end
+		elseif not improvement.beatsBest then
+			-- no curve to price the key with, but the level test holds
+			return
+		end
+	end
 	local key = Match.shortName(leader)
 	local counts = C_LFGList.GetSearchResultMemberCounts(resultID)
 	matches[key] = {
@@ -464,6 +869,7 @@ local function scanOne(resultID)
 		leader = leader,
 		resultID = resultID,
 		activity = actDisplay,
+		improvement = improvement,
 		lastSeen = GetTime(),
 		tanks = counts and safeNum(counts.TANK),
 		healers = counts and safeNum(counts.HEALER),
@@ -839,7 +1245,22 @@ frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("LFG_LIST_SEARCH_RESULTS_RECEIVED")
 frame:RegisterEvent("LFG_LIST_SEARCH_RESULT_UPDATED")
 frame:RegisterEvent("LFG_LIST_SEARCH_FAILED")
-frame:SetScript("OnEvent", function(_, event, arg1)
+frame:RegisterEvent("LFG_LIST_APPLICATION_STATUS_UPDATED")
+-- The words Blizzard uses for an application's state, for the one line
+-- printed when it changes. The row badge reads the same states.
+local APPLICATION_STATUS = {
+	invited = "you have been invited!",
+	inviteaccepted = "invite accepted",
+	invitedeclined = "you declined the invite",
+	declined = "your application was declined",
+	declined_full = "that group filled up",
+	declined_delisted = "that group was delisted",
+	timedout = "your application timed out",
+	cancelled = "application withdrawn",
+	failed = "the application failed",
+}
+
+frame:SetScript("OnEvent", function(_, event, arg1, arg2)
 	if event == "PLAYER_LOGIN" then
 		AmbientLFGDB = AmbientLFGDB or {}
 		db = AmbientLFGDB
@@ -869,6 +1290,11 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 			end
 		end
 		alerted = db.alerted
+		-- the season-best tables read empty until this is asked for, and
+		-- the improve filter reads them on the very first scan
+		if C_MythicPlus.RequestMapInfo then
+			C_MythicPlus.RequestMapInfo()
+		end
 		-- Rule words could never see a keystone level: a listing's title
 		-- reaches an addon as an opaque token even when the group typed it.
 		-- The Group Finder's own search box can, so the search is the filter
@@ -886,6 +1312,11 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 		db.boxText = nil
 		db.lastSearch = nil
 		restartTicker()
+	elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
+		local said = APPLICATION_STATUS[arg2]
+		if said then
+			msg(said)
+		end
 	elseif event == "LFG_LIST_SEARCH_FAILED" then
 		-- back off exponentially on repeated failures (throttle, or the
 		-- player simply can't use the Group Finder right now), and give up
@@ -1086,6 +1517,70 @@ SlashCmdList.AMBIENTLFG = function(input)
 		wipe(alerted)
 		wipe(preexisting)
 		msg("alert history cleared — already-seen groups will alert again")
+	elseif cmd == "oce" then
+		db.oceOnly = rest:lower() ~= "off"
+		msg(db.oceOnly and "only alerting on Oceanic-realm leaders"
+			or "alerting on every realm")
+	elseif cmd == "improve" then
+		local want = rest:lower()
+		if want == "off" then
+			db.improveOnly = false
+		else
+			db.improveOnly = true
+			db.minGain = tonumber(want) or 1
+		end
+		msg(db.improveOnly
+			and ("only alerting on keys worth at least %+d score to you"):format(db.minGain)
+			or "alerting whether or not a key would raise your score")
+	elseif cmd == "keysource" then
+		local want = rest:lower()
+		if want == "title" or want == "leader" or want == "both" then
+			db.keySource = want
+		end
+		msg(("estimated key levels read from: %s"):format(db.keySource))
+		msg("  title  = only a level the group typed (readable on almost no listing)")
+		msg("  leader = the leader's best run in that dungeon (an estimate)")
+		msg("  both   = title when readable, else the leader estimate")
+		msg("For an EXACT key level, type it in the Group Finder search box "
+			.. "(\"12-14\") — the server filters on the real level and this addon "
+			.. "replays that search.")
+	elseif cmd == "score" then
+		-- what the improve filter judges against, laid out so it can be
+		-- checked against the character sheet rather than taken on trust
+		local overall = C_ChallengeMode.GetOverallDungeonScore
+			and C_ChallengeMode.GetOverallDungeonScore() or 0
+		local curve = levelScoreCurve()
+		msg(("overall %d — score curve measured from %d of your own levels%s"):format(
+			overall, curve.samples,
+			curve.slope and (", ~%.0f per level"):format(curve.slope)
+				or " (run 2+ different levels to project a gain)"))
+		local maps = C_ChallengeMode.GetMapTable and C_ChallengeMode.GetMapTable() or {}
+		local rows = {}
+		for _, id in ipairs(maps) do
+			local mapName = C_ChallengeMode.GetMapUIInfo(id)
+			local score, timedLevel = dungeonBest(id)
+			rows[#rows + 1] = { name = mapName or ("map " .. id), score = score,
+				level = timedLevel }
+		end
+		table.sort(rows, function(a, b) return a.score < b.score end)
+		for _, row in ipairs(rows) do
+			local next_ = scoreForLevel(row.level + 1)
+			msg(("  %s: %d, best timed +%d%s"):format(row.name, row.score, row.level,
+				next_ and (" — a timed +%d is worth ~%+d"):format(
+					row.level + 1, math.floor(next_ - row.score + 0.5)) or ""))
+		end
+	elseif cmd == "maps" then
+		-- the improve filter rests on one undocumented assumption: that an
+		-- activity's mapID is the same number the challenge-mode API calls a
+		-- mapID. If it is not, the name bridge is carrying every listing.
+		buildChallengeMaps()
+		local maps = C_ChallengeMode.GetMapTable and C_ChallengeMode.GetMapTable() or {}
+		msg(("%d challenge maps this season"):format(#maps))
+		for _, id in ipairs(maps) do
+			local mapName, _, _, _, _, uiMapID = C_ChallengeMode.GetMapUIInfo(id)
+			msg(("  challengeMapID %d = %s (mapID %s)"):format(
+				id, mapName or "?", tostring(uiMapID)))
+		end
 	elseif cmd == "diag" then
 		diag()
 	elseif cmd == "test" then
@@ -1118,6 +1613,10 @@ ns.SetRaidRoles = function(roles)
 end
 ns.WatchedCategory = watchedCategory
 ns.GetMatches = function() return matches end
+ns.ApplyToMatch = applyToMatch
+ns.CancelApplication = cancelApplication
+ns.GetApplicationStatus = applicationStatus
+ns.ShowInGroupFinder = showInGroupFinder
 ns.BlockLeader = blockLeader
 ns.ResetAlerted = function() wipe(alerted); wipe(preexisting) end
 ns.TestAlert = function()

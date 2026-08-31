@@ -359,4 +359,135 @@ function Match.stateLines(s)
 		"No matching groups right now — one appears here the moment it is listed. Nothing to do but play; you will get a banner."
 end
 
+--------------------------------------------------------------------------------
+-- Region and keystone level
+--------------------------------------------------------------------------------
+
+local OCE_REALMS = {}
+for _, realm in ipairs({
+	"AmanThul", "Barthilas", "Caelestrasz", "DathRemar", "Dreadmaul",
+	"Frostmourne", "Gundrak", "JubeiThos", "Khazgoroth", "Nagrand",
+	"Saurfang", "Thaurissan",
+}) do
+	OCE_REALMS[realm:lower()] = true
+end
+
+function Match.leaderIsOCE(leader, playerRealm)
+	local realm = leader:match("%-(.+)$")
+	if not realm or realm == "" then
+		realm = playerRealm or ""
+	end
+	return OCE_REALMS[(realm:gsub("[^%w]", "")):lower()] == true
+end
+
+-- The keystone level is not a field on a listing: it is not on
+-- LfgSearchResultData and not in AdvancedFilterOptions either. The only
+-- place it exists is the title, and only when the group typed one —
+-- Blizzard's auto-generated titles arrive as |K...|k tokens.
+--
+--
+-- Blizzard's own search box IS an exact key-range filter (the server
+-- evaluates it against the real level), and since 0.4.0 that box is what
+-- decides which listings arrive here at all. What follows is only for
+-- DISPLAY and for pricing a key against your score — never for deciding
+-- whether a listing is in range, which the search box already settled.
+--
+-- Only forms that can ONLY be a key level are read. A bare number in a
+-- title is far more often something else — "need 2 dps", "3/5",
+-- "700 ilvl", "2500 io".
+local KEY_MIN, KEY_MAX = 2, 40
+
+local KEY_PATTERNS = {
+	"%+%s*(%d+)",          -- "+12"
+	"(%d+)%s*%+",          -- "12+"
+	"key%s*(%d+)",         -- "key12"
+	"(%d+)%s*key",         -- "12key"
+	"m%s*%+%s*(%d+)",      -- "m+12"
+}
+
+function Match.keyLevelFromTitle(title)
+	if not title or title == "" or title:find("^|K") then
+		return nil
+	end
+	local text = Match.normalizeText(title):lower()
+	for _, pattern in ipairs(KEY_PATTERNS) do
+		-- every match, not just the first: "Mythic+ 700io +12" hits the
+		-- "+" pattern on 700 before it reaches the real level
+		for digits in text:gmatch(pattern) do
+			local level = tonumber(digits)
+			if level and level >= KEY_MIN and level <= KEY_MAX then
+				return level
+			end
+		end
+	end
+end
+
+-- The leader's best run IN THE LISTED DUNGEON. leaderDungeonScoreInfo is a
+-- list of BestDungeonScoreMapInfo, each carrying mapName and bestRunLevel,
+-- so the entry for this dungeon can be picked out by name — "Altar of
+-- Fangs" against the activity's "Altar of Fangs (Mythic Keystone)".
+--
+-- Still an estimate, but a far tighter one than the best-across-all-
+-- dungeons number this replaced: people list a key at or near their own
+-- best in that dungeon, and a leader who has only ever done +2 there is
+-- not running a +12 of it.
+function Match.leaderLevelForDungeon(info, activityName)
+	local scores = info.leaderDungeonScoreInfo
+	if type(scores) ~= "table" then
+		scores = nil
+	end
+	local haystack = (activityName or ""):lower()
+	local best, fallback
+	for _, entry in pairs(scores or {}) do
+		if type(entry) == "table" then
+			-- bestRunLevel is 0 when they have never run this dungeon;
+			-- that is missing data, not a +0 key
+			local level = Match.safeNum(entry.bestRunLevel)
+			if level and level > 0 then
+				local mapName = Match.safeStr(entry.mapName):lower()
+				if mapName ~= "" and haystack ~= "" and haystack:find(mapName, 1, true) then
+					best = level
+				elseif not fallback then
+					-- the list is usually already scoped to the listing's own
+					-- dungeon, so a single unmatched entry is still about it
+					fallback = level
+				end
+			end
+		end
+	end
+	if best then
+		return best
+	end
+	if type(info.leaderBestDungeonScoreInfo) == "table" then
+		local entry = info.leaderBestDungeonScoreInfo
+		local mapName = Match.safeStr(entry.mapName):lower()
+		local level = Match.safeNum(entry.bestRunLevel)
+		if level and level > 0 and mapName ~= "" and haystack ~= ""
+			and haystack:find(mapName, 1, true) then
+			return level
+		end
+	end
+	return fallback
+end
+
+-- source: "title" | "leader" | "both". The title is the group's own word
+-- and always wins when it is readable; in practice it almost never is
+-- (a scan of 63 live listings produced a readable level on none of them),
+-- which is why "both" is the default rather than "title".
+function Match.keyLevelFor(info, title, activityName, source)
+	source = source or "both"
+	if source ~= "leader" then
+		local level = Match.keyLevelFromTitle(title)
+		if level then
+			return level, "title"
+		end
+	end
+	if source ~= "title" then
+		local level = Match.leaderLevelForDungeon(info, activityName)
+		if level then
+			return level, "leader"
+		end
+	end
+end
+
 return Match
