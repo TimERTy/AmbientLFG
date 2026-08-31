@@ -702,14 +702,23 @@ local firePendingSearch -- assigned once issueSearch is in scope
 -- untouched, so it changes nothing about what that key does, and it listens
 -- only while a search is actually queued.
 --
--- It also stands down in combat. Handing the keystroke back on is a protected
--- call there, so an addon that listens in combat is blocked from returning the
--- key, and the block is reported against the addon. A queued search waits for
--- the next click instead, which costs a cycle and nothing else.
+-- It also stands down in combat, and the two halves of that are not the same
+-- call. SetPropagateKeyboardInput is restricted in combat (10.1.5), so calling
+-- it there is blocked and reported against the addon; EnableKeyboard is not
+-- restricted, so it is what the combat toggle is built out of. Propagation is
+-- a durable property of the frame rather than a per-keystroke one, so setting
+-- it once at creation is what keeps every key passing through untouched.
+-- A queued search waits for the next click instead, which costs a cycle.
 local keyWatcher = CreateFrame("Frame", nil, UIParent)
 keyWatcher:SetPropagateKeyboardInput(true)
 keyWatcher:EnableKeyboard(false)
 keyWatcher:SetScript("OnKeyDown", function(self)
+	if InCombatLockdown() then
+		-- reaching this at all means the event stand-down did not take, so do it
+		-- here where a key proves the frame is still listening
+		self:EnableKeyboard(false)
+		return
+	end
 	self:SetPropagateKeyboardInput(true)
 	firePendingSearch()
 end)
