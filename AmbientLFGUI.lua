@@ -1,7 +1,11 @@
 local _, ns = ...
 
-local FRAME_WIDTH = 400
-local FRAME_HEIGHT = 444 -- the raid role row costs the match list its height otherwise
+-- Wide enough to read a row without clipping: comp, badge, score gain,
+-- dungeon, leader and title all sit on one line.
+local FRAME_WIDTH = 580
+local FRAME_HEIGHT = 460 -- the raid role row costs the match list its height otherwise
+local MIN_WIDTH, MAX_WIDTH = 420, 1100
+local MIN_HEIGHT, MAX_HEIGHT = 400, 900
 local PADDING = 10
 local ROW_HEIGHT = 24
 
@@ -9,9 +13,9 @@ local ui
 
 local ROLE_ORDER = { "TANK", "HEALER", "DAMAGER" }
 local ROLE_UI = {
-	TANK = { label = "Tank", atlas = "roleicon-tiny-tank" },
-	HEALER = { label = "Healer", atlas = "roleicon-tiny-healer" },
-	DAMAGER = { label = "DPS", atlas = "roleicon-tiny-dps" },
+	TANK = { label = "Tank", atlas = "roleicon-tiny-tank", color = "ff4a90d9" },
+	HEALER = { label = "Healer", atlas = "roleicon-tiny-healer", color = "ff40c057" },
+	DAMAGER = { label = "DPS", atlas = "roleicon-tiny-dps", color = "ffe04a4a" },
 }
 
 -- The label sits outside the button's hit rect, so clicking the word did
@@ -70,19 +74,72 @@ local function AcquireRow(f, i)
 	f.rows = f.rows or {}
 	local row = f.rows[i]
 	if not row then
-		row = CreateFrame("Frame", nil, f.scrollChild)
+		-- A Button, not a Frame: a click handler is a hardware event, which
+		-- is the only context C_LFGList.ApplyToGroup can be called from at
+		-- all. Applying from a timer or an event is blocked outright.
+		row = CreateFrame("Button", nil, f.scrollChild)
 		row:SetHeight(ROW_HEIGHT)
 		row:SetPoint("LEFT", f.scrollChild, "LEFT", 0, 0)
 		row:SetPoint("RIGHT", f.scrollChild, "RIGHT", 0, 0)
+		row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
 		row.bg = row:CreateTexture(nil, "BACKGROUND")
 		row.bg:SetAllPoints()
+
+		local hl = row:CreateTexture(nil, "HIGHLIGHT")
+		hl:SetAllPoints()
+		hl:SetColorTexture(1, 1, 1, 0.08)
 
 		row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		row.text:SetPoint("LEFT", row, "LEFT", 6, 0)
 		row.text:SetPoint("RIGHT", row, "RIGHT", -28, 0)
 		row.text:SetJustifyH("LEFT")
 		row.text:SetWordWrap(false)
+
+		row:SetScript("OnClick", function(self, button)
+			if not self.matchResultID then
+				ns.msg("that listing is not loaded any more — it will come back on the next search")
+				return
+			end
+			if button == "RightButton" then
+				ns.ShowInGroupFinder(self.matchResultID, self.matchLeader)
+			elseif self.matchApplied then
+				ns.CancelApplication(self.matchResultID, self.matchLeader)
+			else
+				ns.ApplyToMatch(self.matchResultID, self.matchLeader)
+			end
+			Refresh()
+		end)
+		row:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText(self.matchLeaderName or "This group")
+			local imp = self.matchImprovement
+			if imp then
+				if imp.level then
+					GameTooltip:AddLine(("Key +%d (%s)"):format(imp.level,
+						imp.levelSource == "title" and "from the title"
+							or "estimated: leader's best here"), 0.7, 0.7, 0.7)
+				else
+					GameTooltip:AddLine("Key level unknown", 0.7, 0.7, 0.7)
+				end
+				GameTooltip:AddLine(("You: %d here, best timed +%d"):format(
+					imp.current, imp.bestTimedLevel), 0.7, 0.7, 0.7)
+				if imp.gain then
+					local rounded = math.floor(imp.gain + 0.5)
+					GameTooltip:AddLine(("Timed, this is worth %+d (%s)"):format(
+						rounded, imp.projectionSource),
+						rounded > 0 and 0.25 or 0.6, rounded > 0 and 0.75 or 0.6, 0.35)
+				elseif imp.beatsBest then
+					GameTooltip:AddLine("Above your best timed run here", 0.25, 0.75, 0.35)
+				end
+			end
+			GameTooltip:AddLine(self.matchApplied
+				and "Click to withdraw  |  Right-click to show in the Group Finder"
+				or "Click to sign up  |  Right-click to show in the Group Finder",
+				0.5, 0.5, 0.5)
+			GameTooltip:Show()
+		end)
+		row:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 		row.block = CreateFrame("Button", nil, row, "UIPanelCloseButton")
 		row.block:SetSize(20, 20)
@@ -181,8 +238,21 @@ Refresh = function()
 	-- name, and the status line already says so and says what to do about it.
 	local watching = ns.GetWatchedSearch()
 	local hint, narrowed = ns.RaidDifficultyHint()
+	-- The addon's own filters narrow what the search returns, so they are
+	-- named beside the search for the same reason it is: a filter that is
+	-- on and invisible looks exactly like the addon being broken.
+	local extra = {}
+	if db.oceOnly then
+		extra[#extra + 1] = "OCE realms"
+	end
+	if db.improveOnly then
+		extra[#extra + 1] = (db.minGain or 1) > 1
+			and ("raises my score by %d+"):format(db.minGain)
+			or "raises my score"
+	end
 	ui.watchText:SetText(watching
 		and ("Watching |cffffd100%s|r"):format(watching)
+			.. (#extra > 0 and (" |cff66ccff(%s)|r"):format(table.concat(extra, ", ")) or "")
 			.. (hint and ("\n%s%s|r"):format(narrowed and "|cff66ff66" or "|cffffcc00", hint) or "")
 		or "")
 
@@ -209,24 +279,76 @@ Refresh = function()
 	end
 	table.sort(matchList, function(a, b) return a.lastSeen > b.lastSeen end)
 
+	-- Resolved once per refresh, not once per row: GetApplicationInfo is a
+	-- real call and this list re-renders on a ticker.
+	local statusOf = {}
+	for _, m in ipairs(matchList) do
+		if m.resultID then
+			local status, label, color, active = ns.GetApplicationStatus(m.resultID)
+			if status then
+				statusOf[m] = { label = label, color = color, active = active }
+			end
+		end
+	end
+	local filter = db.matchFilter or "all"
+	if filter ~= "all" then
+		local kept = {}
+		for _, m in ipairs(matchList) do
+			local applied = (statusOf[m] and statusOf[m].active) and true or false
+			if (filter == "applied") == applied then
+				kept[#kept + 1] = m
+			end
+		end
+		matchList = kept
+	end
+	ui.listHeader:SetText(("Current matches (%d)%s"):format(#matchList,
+		filter == "all" and ""
+			or (" |cff999999— %s only|r"):format(
+				filter == "applied" and "applied" or "not applied")))
+
 	local y = 0
 	for i, m in ipairs(matchList) do
 		local row = AcquireRow(ui, i)
 		row:SetPoint("TOP", ui.scrollChild, "TOP", 0, -y)
 		y = y + ROW_HEIGHT
 		row.bg:SetColorTexture(0.1, 0.25, 0.12, i % 2 == 0 and 0.35 or 0.15)
-		local comp = ("%s%s %s%s %s%s"):format(
-			CreateAtlasMarkup(ROLE_UI.TANK.atlas, 12, 12), m.tanks or "?",
-			CreateAtlasMarkup(ROLE_UI.HEALER.atlas, 12, 12), m.healers or "?",
-			CreateAtlasMarkup(ROLE_UI.DAMAGER.atlas, 12, 12), m.dps or "?")
+		-- Members present as "1 | 1 | 2", each number in its role's colour.
+		-- The icons cost width to say what position and colour already say.
+		local function slot(role, have)
+			return ("|c%s%s|r"):format(ROLE_UI[role].color, have or "?")
+		end
+		local comp = ("%s|cff555555 | |r%s|cff555555 | |r%s"):format(
+			slot("TANK", m.tanks), slot("HEALER", m.healers), slot("DAMAGER", m.dps))
 		local activity = m.activity and ("|cffffd100%s|r "):format(m.activity) or ""
+		local s = statusOf[m]
+		local badge = s and ("|c%s[%s]|r "):format(s.color, s.label) or ""
+		-- Score gain sits early in the row: it is the one number that decides
+		-- whether the group is worth applying to, so it must survive a narrow
+		-- row. Green climbs, grey is flat, "+?" means above your best timed
+		-- run but with no measured curve to price it.
+		local gain, imp = "", m.improvement
+		if imp and imp.gain then
+			local rounded = math.floor(imp.gain + 0.5)
+			gain = ("|c%s%+d|r "):format(rounded > 0 and "ff40c057" or "ff777777", rounded)
+		elseif imp and imp.beatsBest then
+			gain = "|cff40c057+?|r "
+		end
 		-- the leader leads the row because it is the only part guaranteed to be
 		-- real text; a title token the client has not resolved yet draws as
 		-- "Unknown", and a row that says only that identifies nothing
 		local who = ns.Match.shortName(m.leader)
 		local title = (m.name and m.name ~= m.leader) and (" " .. m.name) or ""
-		row.text:SetText(("%s  %s|cff9999ff%s|r%s"):format(comp, activity, who, title))
+		row.text:SetText(("%s  %s%s%s|cff9999ff%s|r%s"):format(
+			comp, badge, gain, activity, who, title))
+		if s and s.active then
+			row.bg:SetColorTexture(0.1, 0.35, 0.15, 0.55)
+		end
 		row.block.matchLeader = m.leader
+		row.matchResultID = m.resultID
+		row.matchLeader = m.leader
+		row.matchLeaderName = who
+		row.matchImprovement = m.improvement
+		row.matchApplied = s and s.active or false
 	end
 
 	if ui.rows then
@@ -281,6 +403,37 @@ local function CreateUI()
 	f:RegisterForDrag("LeftButton")
 	f:SetScript("OnDragStart", f.StartMoving)
 	f:SetScript("OnDragStop", f.StopMovingOrSizing)
+	f:SetResizable(true)
+	if f.SetResizeBounds then
+		f:SetResizeBounds(MIN_WIDTH, MIN_HEIGHT, MAX_WIDTH, MAX_HEIGHT)
+	end
+
+	-- A row is one line of fixed-width text, so how much of it you can read
+	-- is purely how wide the window is. Dragging it wider is the fix, and
+	-- the size is kept so it is not re-dragged every session.
+	local grip = CreateFrame("Button", nil, f)
+	grip:SetSize(16, 16)
+	grip:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -2, 2)
+	grip:SetNormalTexture("Interface\ChatFrame\UI-ChatIM-SizeGrabber-Up")
+	grip:SetHighlightTexture("Interface\ChatFrame\UI-ChatIM-SizeGrabber-Highlight")
+	grip:SetScript("OnMouseDown", function()
+		f:StartSizing("BOTTOMRIGHT")
+	end)
+	grip:SetScript("OnMouseUp", function()
+		f:StopMovingOrSizing()
+		local dbx = ns.GetDB()
+		if dbx then
+			dbx.uiWidth, dbx.uiHeight = math.floor(f:GetWidth()), math.floor(f:GetHeight())
+		end
+	end)
+	f:SetScript("OnSizeChanged", function(self)
+		if self.scrollChild and self.scrollFrame then
+			self.scrollChild:SetWidth(self.scrollFrame:GetWidth())
+		end
+		if self.emptyText then
+			self.emptyText:SetWidth(math.max(120, self:GetWidth() - PADDING * 2 - 40))
+		end
+	end)
 	f:Hide()
 
 	local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -434,6 +587,25 @@ local function CreateUI()
 	listHeader:SetPoint("TOPLEFT", f.openGF, "BOTTOMLEFT", 0, -8)
 	listHeader:SetText("Current matches")
 	listHeader:SetTextColor(0.7, 0.7, 0.7)
+	f.listHeader = listHeader
+	-- Once you have applied to a few, the question stops being "what is
+	-- listed" and becomes "what have I not answered yet", so the header
+	-- doubles as a filter across the same three states the badges show.
+	local headerBtn = CreateFrame("Button", nil, f)
+	headerBtn:SetPoint("TOPLEFT", listHeader, "TOPLEFT", 0, 2)
+	headerBtn:SetSize(300, 16)
+	headerBtn:SetScript("OnClick", function()
+		local db = ns.GetDB()
+		local order = { all = "applied", applied = "open", open = "all" }
+		db.matchFilter = order[db.matchFilter or "all"] or "all"
+		Refresh()
+	end)
+	headerBtn:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("Click to cycle: all / applied only / not applied")
+		GameTooltip:Show()
+	end)
+	headerBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 	local listBg = CreateFrame("Frame", nil, f, "BackdropTemplate")
 	listBg:SetPoint("TOPLEFT", listHeader, "BOTTOMLEFT", 0, -4)
@@ -456,6 +628,7 @@ local function CreateUI()
 	scrollChild:SetHeight(1)
 	scrollFrame:SetScrollChild(scrollChild)
 	f.scrollChild = scrollChild
+	f.scrollFrame = scrollFrame
 
 	-- An empty list is when someone needs telling what to do, so the line says
 	-- it; Refresh picks the wording from the same state the status line uses.
@@ -509,6 +682,14 @@ end
 local function ToggleUI()
 	if not ui then
 		ui = CreateUI()
+		-- restored on first open, not at file load: the saved variables
+		-- are not there yet when this file runs
+		local db = ns.GetDB()
+		if db and db.uiWidth and db.uiHeight then
+			ui:SetSize(
+				math.min(MAX_WIDTH, math.max(MIN_WIDTH, db.uiWidth)),
+				math.min(MAX_HEIGHT, math.max(MIN_HEIGHT, db.uiHeight)))
+		end
 	end
 	if ui:IsShown() then
 		ui:Hide()

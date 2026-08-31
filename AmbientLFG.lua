@@ -10,6 +10,8 @@ local defaults = {
 	-- "both" | "title" | "leader": where an estimated key level may come
 	-- from. A readable title is rare; the leader estimate carries it.
 	keySource = "both",
+	-- "all" | "applied" | "open": which rows the list shows
+	matchFilter = "all",
 	ignores = { "wts", "sell", "boost", "carry" },
 	sound = true,
 	interval = 10,
