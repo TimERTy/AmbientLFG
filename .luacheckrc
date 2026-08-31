@@ -12,19 +12,27 @@ exclude_files = { "libs", "locales", "tools" }
 -- WoW API, frames, and constants these addons read
 read_globals = {
     -- API namespaces
-    "C_AddOns", "C_ChatInfo", "C_DamageMeter", "C_FriendList", "C_Item",
-    "C_LFGList", "C_Spell", "C_Timer", "Enum",
+    "C_AddOns", "C_ChallengeMode", "C_ChatInfo", "C_DamageMeter",
+    "C_FriendList", "C_Item", "C_LFGList", "C_MythicPlus", "C_Spell",
+    "C_Timer", "Enum",
     -- functions
     "AuraUtil", "CanInspect", "ChatFrameUtil", "CreateAtlasMarkup",
     "CreateFrame", "FlashClientIcon", "GetAddOnMetadata",
     "GetBindingFromClick", "GetBindingKey", "GetCurrentKeyBoardFocus",
     "GetGuildInfo", "GetInspectSpecialization", "GetInstanceInfo",
-    "GetItemInfo", "GetLocale", "GetNumGroupMembers", "GetPlayerInfoByGUID",
+    "GetItemInfo", "GetLocale", "GetNormalizedRealmName",
+    "GetNumGroupMembers", "GetPlayerInfoByGUID",
     "GetRaidRosterInfo", "GetRaidTargetIndex", "GetRealZoneText",
     "GetRealmName", "GetReadyCheckStatus", "GetSpecialization",
     "GetSpecializationInfo", "GetSpecializationRole", "GetTime",
     "GetUnitName", "GuildControlGetNumRanks", "GuildControlGetRankName",
+    "GroupFinderFrame_ShowGroupFrame",
     "InCombatLockdown", "IsControlKeyDown", "IsInGroup", "IsInInstance",
+    "LFGListCategorySelection_SelectCategory",
+    "LFGListCategorySelection_StartFindGroup", "LFGListFrame_SetActivePanel",
+    "LFGListSearchPanel_SelectResult", "LFGListSearchPanel_SetCategory",
+    "LFGListSearchPanel_UpdateResultList", "LFGListSearchPanel_UpdateResults",
+    "LFGListUtil_OpenBestWindow",
     "IsInRaid", "IsShiftKeyDown", "NotifyInspect", "OpenFriendsFrame",
     "PVEFrame_ShowFrame", "PlaySound", "RaidNotice_AddMessage", "RandomRoll",
     "SendChatMessage",
@@ -42,6 +50,7 @@ read_globals = {
     -- frames and UI objects
     "DEFAULT_CHAT_FRAME", "GameTooltip", "GameFontHighlight",
     "GameFontHighlightLarge", "InterfaceOptionsFrame", "LFGListFrame",
+    "LFGListPVEStub",
     "RaidFrame", "RaidWarningFrame", "SettingsPanel", "UIParent",
     "WorldFrame", "BackdropTemplateMixin",
     -- constants and localized strings
@@ -49,6 +58,7 @@ read_globals = {
     "ERR_RAID_MEMBER_ADDED_S", "ERR_RAID_MEMBER_REMOVED_S",
     "ERR_RAID_YOU_JOINED", "FILL_PLUS_STATUS_BAR",
     "GROUP_FINDER_CATEGORY_ID_DUNGEONS", "INLINE_HEALER_ICON",
+    "LFG_LIST_FIND_A_GROUP",
     "INLINE_TANK_ICON", "LE_PARTY_CATEGORY_INSTANCE",
     "LOCALIZED_CLASS_NAMES_FEMALE", "LOCALIZED_CLASS_NAMES_MALE",
     "RAID_CLASS_COLORS", "RANDOM_ROLL_RESULT", "ROLE_CHANGED_INFORM",

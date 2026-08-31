@@ -39,6 +39,11 @@ jobs:
               "workspace.ignoreDir": ["libs", "locales", "tests"]
           }
           CFG
+          # `bash -e` aborts at this assignment when the checker exits
+          # non-zero, which is exactly when it has something to say, so
+          # the diagnostics never reached the log.
+          set +e
           OUT=$(/tmp/luals/bin/lua-language-server --check . --configpath /tmp/luarc.json --checklevel=Warning 2>&1)
+          set -e
           echo "$OUT"
           echo "$OUT" | grep -q "no problems found"
